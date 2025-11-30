@@ -36,7 +36,7 @@ async def main():
             "search_findings",
             {"query": {"query": "login failure"}}
         )
-        print("RAG results:", res.data["results"])
+        print("RAG results:", res.data.results if res.data.results else "Not found")
 
     print("\nClient closed.")
 
