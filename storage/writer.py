@@ -1,11 +1,8 @@
-from dotenv import load_dotenv
 
 import os
 
-load_dotenv()
+from os_env import EVENTS_DIR, OUTPUT_FILE_NAME
 
-EVENTS_DIR = os.getenv("EVENTS_DIR", "./events")
-OUTPUT_FILE_NAME = os.getenv("OUTPUT_FILE_NAME", "network.jsonl")
 
 os.makedirs(EVENTS_DIR, exist_ok=True)
 
