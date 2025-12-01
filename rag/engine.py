@@ -1,52 +1,104 @@
-from typing import List
-from pydantic_ai import Agent, ModelRetry, RunContext
-from pydantic_ai.providers.ollama import OllamaProvider
+from typing import List, Dict, Any
+import httpx
+from rag.retriever import retrieve
 from os_env import BASE_OLLAMA_URL
-from rag.vector_store import retriever
 
 
-class RAGResponse(ModelRetry):
-    answer: str
-    citations: List[str]
+class RAGResponse:
+    def __init__(self, answer: str, citations: List[str]):
+        self.answer = answer
+        self.citations = citations
+
+    def dict(self) -> Dict[str, Any]:
+        return {
+            "answer": self.answer,
+            "citations": self.citations,
+        }
 
 
-rag_agent = Agent(
-    model="ollama:mistral",
-    model_settings=OllamaProvider(
-        base_url=BASE_OLLAMA_URL
-    ),
-    output_type=RAGResponse,
-    system_prompt=[
-        "You are a forensic analysis AI.",
-        "Use retrieved logs, network flows, and processes.",
-        "Always cite your evidence."
-    ],
-)
+# ---------------------------------------------------------
+# LLM CALL (Ollama)
+# ---------------------------------------------------------
+
+async def call_ollama(prompt: str, model: str = "mistral:latest") -> str:
+    url = f"{BASE_OLLAMA_URL}/api/chat"
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "stream": False,
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+
+        data = resp.json()
+
+        # Ollama sometimes returns message or messages list
+        if "message" in data:
+            return data["message"]["content"]
+
+        if "messages" in data:
+            return data["messages"][-1]["content"]
+
+        raise RuntimeError("Unexpected Ollama response format")
 
 
-@rag_agent.system_prompt
-def system_prompt(ctx):
-    return (
-        "You are a forensic analysis AI. "
-        "You answer questions based only on the retrieved security logs. "
-        "Always cite the events you used."
-    )
+# ---------------------------------------------------------
+# RAG PIPELINE
+# ---------------------------------------------------------
 
+async def answer_with_rag(query: str) -> RAGResponse:
+    # 1. Retrieve relevant documents
+    docs = retrieve(query)
 
-@rag_agent.tool
-def retrieve_context(ctx: RunContext, query: str) -> List[str]:
-    docs = retriever.invoke(query)
-    return [d.page_content for d in docs]
+    # Extract content + IDs
+    pages = [d.page_content for d in docs]
+    doc_ids = [d.metadata.get("id", f"doc-{i}") for i, d in enumerate(docs)]
 
-def rag_search(query: str) -> List[str]:
-    """
-    Raw RAG search without reasoning.
-    Returns the raw document chunks.
-    """
-    docs = retriever.invoke(query)
-    return [d.page_content for d in docs]
+    # 2. Build text context
+    context = ""
+    for i, (text, doc_id) in enumerate(zip(pages, doc_ids)):
+        context += f"\n[Document {i+1} | ID: {doc_id}]\n{text}\n---\n"
 
-def answer_with_rag(query: str) -> RAGResponse:
-    return rag_agent.run(
-        f"Analyze this query using retrieval: {query}"
-    )
+    # 3. Build forensic prompt
+    prompt = f"""
+You are a forensic analysis AI.
+Use ONLY the context provided. Do NOT hallucinate.
+
+Context:
+{context}
+
+Question: {query}
+
+You MUST return JSON in the following format:
+
+{{
+  "answer": "<final conclusion>",
+  "citations": ["<document-id-1>", "<document-id-2>"]
+}}
+
+Rules:
+- "citations" MUST be document IDs from the context.
+- If answer cannot be found, answer "Not found".
+- Do NOT cite anything not explicitly in the context.
+"""
+
+    # 4. Call the LLM
+    raw_answer = await call_ollama(prompt)
+
+    # 5. Best effort JSON extraction
+    try:
+        import json
+        data = json.loads(raw_answer)
+        answer = data.get("answer", raw_answer)
+        citations = data.get("citations", [])
+    except Exception:
+        # Fallback if model returns plain text
+        answer = raw_answer
+        citations = doc_ids
+
+    return RAGResponse(answer=answer, citations=citations)
