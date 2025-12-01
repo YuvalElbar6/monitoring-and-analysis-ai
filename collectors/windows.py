@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import psutil
-import win32evtlog
 from scapy.all import sniff
 from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
@@ -49,6 +48,7 @@ class WindowsCollector(BaseOSCollector):
     # SERVICE EVENTS
     # ------------------------------
     def collect_service_events(self, limit=50):
+        import win32evtlog
         events = []
 
         h = win32evtlog.OpenEventLog(None, 'System')

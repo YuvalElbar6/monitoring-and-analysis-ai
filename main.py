@@ -4,7 +4,7 @@ import threading
 import time
 
 from collectors.factory import get_collector
-from storage.writer import write_event
+from storage.storage_writer import write_event
 
 
 def run_process_collector(collector, interval=10):

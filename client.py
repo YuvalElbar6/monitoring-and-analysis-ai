@@ -8,8 +8,8 @@ import httpx
 from fastmcp.client import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from helper.extract_json import extract_json
-from helper.trimmer import trim_result_to_limit
+from helper.json_helper import extract_json
+from helper.trimmer_helper import trim_result_to_limit
 from os_env import BASE_OLLAMA_URL
 from os_env import MCP_SERVER_URL
 from rag.retriever import retrieve

@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   ###################################################
-  # 1. OLLAMA (LLM backend: Gemma 3 9B, 27B, etc.)
+  # 1. OLLAMA (LLM backend)
   ###################################################
   ollama:
     image: ollama/ollama:latest
@@ -21,7 +21,7 @@ services:
             - capabilities: [gpu]
 
   ###################################################
-  # 2. CHROMA DB (Vector store for RAG)
+  # 2. CHROMA (Vector DB for RAG)
   ###################################################
   chroma:
     image: ghcr.io/chroma-core/chroma:latest
@@ -33,7 +33,7 @@ services:
       - chroma_data:/chroma-data
 
   ###################################################
-  # 3. MCP SERVER + AGENT (your Python project)
+  # 3. MCP SERVER (your agent backend)
   ###################################################
   mcp:
     build:
@@ -47,11 +47,11 @@ services:
     ports:
       - "8001:8001"
     environment:
-      # MCP Server settings
+      # MCP server settings
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "8001"
 
-      # Ollama for Gemma
+      # Ollama (Gemma backend)
       OLLAMA_BASE_URL: "http://ollama:11434"
       API_KEY: "ollama"
 
@@ -63,7 +63,7 @@ services:
       - .:/app
 
   ###################################################
-  # 4. OPTIONAL: OPENWEBUI for debug / testing
+  # 4. OPTIONAL: OPENWEBUI for local UI testing
   ###################################################
   openwebui:
     image: ghcr.io/open-webui/open-webui:main

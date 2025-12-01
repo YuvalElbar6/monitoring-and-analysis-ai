@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from helper.extract_json import extract_json
+from helper.json_helper import extract_json
 from rag.engine import call_ollama
 from rag.retriever import retrieve
 
