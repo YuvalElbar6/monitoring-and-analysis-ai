@@ -167,15 +167,15 @@ async def agent_step(user_query: str):
 
     # 3. Execute tool
     result = await client.call_tool(tool, args)
-    print("Gotten the wanted result")
 
     if not result or not result.data:
-        print("Gotten no data")
+        print("Gotten no data! please check if the tools or the agent!")
         return None
+
+    print("Found the tool results")
     
     trimmed = trim_result_to_limit(result.data, 1)
-    print("Trimmed the data")
-    print(user_query, trimmed)
+    print("Trimmed the data to make it shorter")
     # 4. Give tool result to LLM for final answer
     final_prompt = f"""
 You are a cybersecurity analyst.
@@ -196,6 +196,39 @@ Provide a final human-readable answer.
 
     return {"final": analysis}
 
+
+def pretty_tools(tools):
+    print("\n🛠️  Available MCP Tools:\n")
+
+    for t in tools:
+        name = t.name
+        desc = t.description or "(no description)"
+        schema = t.inputSchema or {}
+
+        print(f"• {name}")
+        print(f"    Description: {desc}")
+
+        props = schema.get("properties", {})
+
+        if not props:
+            print("    Arguments: none\n")
+            continue
+
+        print("    Arguments:")
+        for arg_name, info in props.items():
+            default = info.get("default")
+            typ = info.get("type", "object")
+            title = info.get("title", arg_name)
+
+            print(f"      - {arg_name} ({typ})")
+            if default is not None:
+                print(f"         default: {default}")
+            if title and title != arg_name:
+                print(f"         title: {title}")
+        print()
+
+
+
 # ---------------------------------------------------------
 # MAIN LOOP
 # ---------------------------------------------------------
@@ -204,7 +237,8 @@ async def run_agent():
     print("🔌 Connecting to MCP server...")
 
     async with client:
-        print("Available tools:", await client.list_tools())
+        tools =  await client.list_tools()
+        pretty_tools(tools)
     print()
 
     while True:
@@ -212,7 +246,7 @@ async def run_agent():
         if user == "/exit":
             break
         
-        print("Trying to run")
+        print("Running the agent step")
     
         async with client:
             final = await agent_step(user)
