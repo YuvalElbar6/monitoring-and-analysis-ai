@@ -12,8 +12,6 @@ This file is completely self-contained and safe for:
 
 from typing import List, Dict, Any
 
-from vt_check import scan_file_rag_intel
-
 
 # ============================================================
 # HELPERS
