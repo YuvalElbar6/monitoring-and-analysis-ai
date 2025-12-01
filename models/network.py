@@ -1,13 +1,16 @@
 # models/network.py
-from pydantic import BaseModel, IPvAnyAddress
+from __future__ import annotations
+
+from pydantic import BaseModel
+from pydantic import IPvAnyAddress
 from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
-from typing import Optional
+
 
 class NetworkEvent(BaseModel):
-    src: Optional[IPvAnyAddress] = None
-    dst: Optional[IPvAnyAddress] = None
-    proto: Optional[str] = None
+    src: IPvAnyAddress | None = None
+    dst: IPvAnyAddress | None = None
+    proto: str | None = None
     length: int
     summary: str
 
@@ -24,6 +27,8 @@ class NetworkEvent(BaseModel):
     @classmethod
     def from_scapy_auto(cls, pkt):
         layer = None
-        if IP in pkt: layer = pkt[IP]
-        elif IPv6 in pkt: layer = pkt[IPv6]
+        if IP in pkt:
+            layer = pkt[IP]
+        elif IPv6 in pkt:
+            layer = pkt[IPv6]
         return cls.from_scapy(pkt, layer)

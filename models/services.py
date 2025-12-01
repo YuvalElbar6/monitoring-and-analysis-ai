@@ -1,29 +1,31 @@
 # models/services.py
-from pydantic import BaseModel
-from typing import Optional
+from __future__ import annotations
+
 from datetime import datetime
+
+from pydantic import BaseModel
 
 
 class ServiceEvent(BaseModel):
     service_name: str
-    status: Optional[str] = None
-    pid: Optional[int] = None
-    description: Optional[str] = None
-    event_id: Optional[int] = None
-    category: Optional[int] = None
-    message: Optional[str] = None
-    time_generated: Optional[datetime] = None
-    computer_name: Optional[str] = None
+    status: str | None = None
+    pid: int | None = None
+    description: str | None = None
+    event_id: int | None = None
+    category: int | None = None
+    message: str | None = None
+    time_generated: datetime | None = None
+    computer_name: str | None = None
 
     # WINDOWS
     @classmethod
     def from_windows(cls, e):
-        raw_inserts = getattr(e, "StringInserts", None)
+        raw_inserts = getattr(e, 'StringInserts', None)
 
         if raw_inserts is None:
-            message = ""
+            message = ''
         elif isinstance(raw_inserts, (list, tuple)):
-            message = " ".join(str(x) for x in raw_inserts)
+            message = ' '.join(str(x) for x in raw_inserts)
         else:
             message = str(raw_inserts)
 
@@ -36,12 +38,13 @@ class ServiceEvent(BaseModel):
             message=message,
         )
     # LINUX
+
     @classmethod
     def from_linux(cls, entry: dict):
         return cls(
-            service_name=entry.get("unit") or entry.get("name"),
-            description=entry.get("description"),
-            status=entry.get("active_state"),
+            service_name=entry.get('unit') or entry.get('name'),
+            description=entry.get('description'),
+            status=entry.get('active_state'),
         )
 
     # MAC
@@ -49,6 +52,6 @@ class ServiceEvent(BaseModel):
     def from_mac(cls, pid: str, status: str, label: str):
         return cls(
             service_name=label,
-            pid=None if pid == "-" else int(pid),
+            pid=None if pid == '-' else int(pid),
             status=status,
         )

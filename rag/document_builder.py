@@ -1,9 +1,11 @@
-import json
-from typing import Dict, Any
+from __future__ import annotations
+
+from typing import Any
+
 from models.unified import UnifiedEvent
 
 
-def event_to_document(event: UnifiedEvent) -> Dict[str, Any]:
+def event_to_document(event: UnifiedEvent) -> dict[str, Any]:
     """
     Convert a UnifiedEvent into a clean and LLM-friendly Chroma document.
     """
@@ -23,12 +25,12 @@ def event_to_document(event: UnifiedEvent) -> Dict[str, Any]:
 
     # METADATA
     if event.metadata:
-        lines.append("\nMetadata:")
+        lines.append('\nMetadata:')
         for k, v in event.metadata.items():
             lines.append(f"  {k}: {v}")
 
     # Final text chunk
-    text = "\n".join(lines)
+    text = '\n'.join(lines)
 
     # -------- Unique ID (type + ISO time + hash of details) --------
     uid = f"{event.type}-{event.timestamp.isoformat()}"
@@ -38,11 +40,11 @@ def event_to_document(event: UnifiedEvent) -> Dict[str, Any]:
 
     # -------- Chroma Document --------
     return {
-        "id": uid,
-        "text": text,
-        "metadata": {
-            "type": event.type,
-            "timestamp": event.timestamp.isoformat(),
-            **(event.metadata or {})
-        }
+        'id': uid,
+        'text': text,
+        'metadata': {
+            'type': event.type,
+            'timestamp': event.timestamp.isoformat(),
+            **(event.metadata or {}),
+        },
     }

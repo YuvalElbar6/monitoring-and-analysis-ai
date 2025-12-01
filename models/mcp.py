@@ -1,11 +1,15 @@
-from typing import List, Dict
-from dataclasses import dataclass, field
+from __future__ import annotations
+
+from dataclasses import dataclass
+from dataclasses import field
+
 
 @dataclass
 class SharedState:
-    processes: List[Dict] = field(default_factory=list)
-    network_flows: List[Dict] = field(default_factory=list)
-    services: List[Dict] = field(default_factory=list)
-    findings: List[Dict] = field(default_factory=list)
+    processes: list[dict] = field(default_factory=list)
+    network_flows: list[dict] = field(default_factory=list)
+    services: list[dict] = field(default_factory=list)
+    findings: list[dict] = field(default_factory=list)
+
 
 state = SharedState()

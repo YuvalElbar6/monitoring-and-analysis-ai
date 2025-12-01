@@ -1,18 +1,22 @@
-from typing import List, Dict, Any
+from __future__ import annotations
+
+from typing import Any
+
 import httpx
-from rag.retriever import retrieve
+
 from os_env import BASE_OLLAMA_URL
+from rag.retriever import retrieve
 
 
 class RAGResponse:
-    def __init__(self, answer: str, citations: List[str]):
+    def __init__(self, answer: str, citations: list[str]):
         self.answer = answer
         self.citations = citations
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self) -> dict[str, Any]:
         return {
-            "answer": self.answer,
-            "citations": self.citations,
+            'answer': self.answer,
+            'citations': self.citations,
         }
 
 
@@ -20,15 +24,15 @@ class RAGResponse:
 # LLM CALL (Ollama)
 # ---------------------------------------------------------
 
-async def call_ollama(prompt: str, model: str = "gemma3:4b") -> str:
+async def call_ollama(prompt: str, model: str = 'gemma3:4b') -> str:
     url = f"{BASE_OLLAMA_URL}/api/chat"
 
     payload = {
-        "model": model,
-        "messages": [
-            {"role": "user", "content": prompt}
+        'model': model,
+        'messages': [
+            {'role': 'user', 'content': prompt},
         ],
-        "stream": False,
+        'stream': False,
     }
 
     async with httpx.AsyncClient() as client:
@@ -38,13 +42,13 @@ async def call_ollama(prompt: str, model: str = "gemma3:4b") -> str:
         data = resp.json()
 
         # Ollama sometimes returns message or messages list
-        if "message" in data:
-            return data["message"]["content"]
+        if 'message' in data:
+            return data['message']['content']
 
-        if "messages" in data:
-            return data["messages"][-1]["content"]
+        if 'messages' in data:
+            return data['messages'][-1]['content']
 
-        raise RuntimeError("Unexpected Ollama response format")
+        raise RuntimeError('Unexpected Ollama response format')
 
 
 # ---------------------------------------------------------
@@ -57,10 +61,10 @@ async def answer_with_rag(query: str) -> RAGResponse:
 
     # Extract content + IDs
     pages = [d.page_content for d in docs]
-    doc_ids = [d.metadata.get("id", f"doc-{i}") for i, d in enumerate(docs)]
+    doc_ids = [d.metadata.get('id', f"doc-{i}") for i, d in enumerate(docs)]
 
     # 2. Build text context
-    context = ""
+    context = ''
     for i, (text, doc_id) in enumerate(zip(pages, doc_ids)):
         context += f"\n[Document {i+1} | ID: {doc_id}]\n{text}\n---\n"
 
@@ -94,8 +98,8 @@ Rules:
     try:
         import json
         data = json.loads(raw_answer)
-        answer = data.get("answer", raw_answer)
-        citations = data.get("citations", [])
+        answer = data.get('answer', raw_answer)
+        citations = data.get('citations', [])
     except Exception:
         # Fallback if model returns plain text
         answer = raw_answer

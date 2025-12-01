@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import threading
 import time
 
@@ -46,36 +48,36 @@ def main():
     t1 = threading.Thread(
         target=run_process_collector,
         args=(collector,),
-        daemon=True
+        daemon=True,
     )
 
     # THREAD 2: Service monitoring
     t2 = threading.Thread(
         target=run_service_collector,
         args=(collector,),
-        daemon=True
+        daemon=True,
     )
 
     # THREAD 3: Network monitoring (blocking, so runs in its own thread)
     t3 = threading.Thread(
         target=run_network_collector,
         args=(collector,),
-        daemon=True
+        daemon=True,
     )
 
     t1.start()
     t2.start()
     t3.start()
 
-    print("Collectors running... Press Ctrl+C to stop.")
+    print('Collectors running... Press Ctrl+C to stop.')
 
     # Keep main thread alive
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("Shutting down collectors...")
+        print('Shutting down collectors...')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

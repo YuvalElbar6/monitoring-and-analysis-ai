@@ -1,15 +1,18 @@
 # collectors/mac.py
-import psutil
+from __future__ import annotations
+
 import subprocess
+
+import psutil
 from scapy.all import sniff
 from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
 
-from models.unified import UnifiedEvent
+from collectors.base import BaseOSCollector
+from models.network import NetworkEvent
 from models.process import ProcessEvent
 from models.services import ServiceEvent
-from models.network import NetworkEvent
-from collectors.base import BaseOSCollector
+from models.unified import UnifiedEvent
 
 
 class MacCollector(BaseOSCollector):
@@ -28,10 +31,10 @@ class MacCollector(BaseOSCollector):
 
                 events.append(
                     UnifiedEvent(
-                        type="process",
+                        type='process',
                         details=ev.model_dump(),
-                        metadata={"os": "mac", "collector": "psutil"}
-                    )
+                        metadata={'os': 'mac', 'collector': 'psutil'},
+                    ),
                 )
 
             except Exception:
@@ -46,7 +49,7 @@ class MacCollector(BaseOSCollector):
         events = []
 
         try:
-            raw = subprocess.getoutput("launchctl list")
+            raw = subprocess.getoutput('launchctl list')
             lines = raw.splitlines()[1:]  # skip header
         except Exception as e:
             print(f"[MacCollector:service] launchctl error: {e}")
@@ -63,10 +66,10 @@ class MacCollector(BaseOSCollector):
 
             events.append(
                 UnifiedEvent(
-                    type="service_event",
+                    type='service_event',
                     details=sev.model_dump(),
-                    metadata={"os": "mac", "collector": "launchctl"}
-                )
+                    metadata={'os': 'mac', 'collector': 'launchctl'},
+                ),
             )
 
         return events
@@ -76,7 +79,7 @@ class MacCollector(BaseOSCollector):
     # ------------------------------
     def collect_network_events(self, limit=10):
         events = []
-        counter = {"count": 0}
+        counter = {'count': 0}
 
         def _callback(pkt):
             # find protocol layer
@@ -90,26 +93,25 @@ class MacCollector(BaseOSCollector):
 
             events.append(
                 UnifiedEvent(
-                    type="network_flow",
+                    type='network_flow',
                     details=ev.model_dump(),
-                    metadata={"os": "mac", "collector": "scapy"}
-                )
+                    metadata={'os': 'mac', 'collector': 'scapy'},
+                ),
             )
 
-            counter["count"] += 1
+            counter['count'] += 1
 
             # IMPORTANT: return None so Scapy doesn't print anything
             return None
 
         def _stop(pkt):
-            return counter["count"] >= limit
+            return counter['count'] >= limit
 
         sniff(
             prn=_callback,
             store=False,
-            filter="ip or ip6",
+            filter='ip or ip6',
             stop_filter=_stop,
         )
 
         return events
-

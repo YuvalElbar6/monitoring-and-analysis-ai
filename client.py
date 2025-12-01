@@ -1,13 +1,17 @@
 # client.py
+from __future__ import annotations
+
 import asyncio
 import json
+
 import httpx
 from fastmcp.client import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from helper.extract_json import extract_json
 from helper.trimmer import trim_result_to_limit
-from os_env import MCP_SERVER_URL, BASE_OLLAMA_URL
+from os_env import BASE_OLLAMA_URL
+from os_env import MCP_SERVER_URL
 from rag.retriever import retrieve
 
 
@@ -26,17 +30,17 @@ client = Client(transport=transport)
 # OLLAMA CHAT (your existing RAG/agent brain)
 # ---------------------------------------------------------
 
-async def ollama_chat(prompt: str, model="gemma3:4b"):
+async def ollama_chat(prompt: str, model='gemma3:4b'):
     url = f"{BASE_OLLAMA_URL}/api/chat"
     payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False
+        'model': model,
+        'messages': [{'role': 'user', 'content': prompt}],
+        'stream': False,
     }
     async with httpx.AsyncClient() as c:
         resp = await c.post(url, json=payload)
         resp.raise_for_status()
-        return resp.json()["message"]["content"]
+        return resp.json()['message']['content']
 
 
 # ---------------------------------------------------------
@@ -52,10 +56,10 @@ async def classify_query_with_rag(user_query: str):
     """
     # -------- Retrieve context -------
     docs = retrieve(user_query)
-    context = "\n\n---\n\n".join(d.page_content for d in docs)
+    context = '\n\n---\n\n'.join(d.page_content for d in docs)
 
     # -------- Classification Prompt --------
-    prompt  = f"""
+    prompt = f"""
 You are a cybersecurity tool classifier.
 
 Your responsibilities:
@@ -77,40 +81,40 @@ User query: "{user_query}"
 Available MCP tools and their argument schemas
 (you MUST follow these schemas exactly):
 
-1) get_running_processes  
+1) get_running_processes
    Arguments MUST be:
    {{}}
 
-2) get_network_flows  
+2) get_network_flows
    Arguments MUST be:
    {{
       "limit": <integer between 1 and 5>,
       "duration_minutes": <integer or null>
    }}
 
-3) search_findings  
+3) search_findings
    Arguments MUST be:
    {{
       "query": "<string>"
    }}
 
-4) analyze_processes  
+4) analyze_processes
    Arguments MUST be:
    {{}}
 
-5) analyze_network  
+5) analyze_network
    Arguments MUST be:
    {{}}
 
-6) analyze_services  
+6) analyze_services
    Arguments MUST be:
    {{}}
 
-7) analyze_all  
+7) analyze_all
    Arguments MUST be:
    {{}}
 
-8) none  
+8) none
    Arguments MUST be:
    {{}}
 
@@ -130,22 +134,22 @@ Output Rules:
 Return ONLY the JSON dictionary.
 """
 
-
     # -------- Call Ollama -------
     raw = await ollama_chat(prompt)
 
     # -------- JSON parse & cleanup --------
     try:
         data = extract_json(raw)
-    except:
-        return {"tool": "none", "arguments": {}}
+    except Exception as e:
+        print(f"Couldn't extract json: {e}")
+        return {'tool': 'none', 'arguments': {}}
 
     # Safety clamp: ensure limit ≤ 5
-    if data.get("tool") == "get_network_flows":
-        args = data.get("arguments", {})
-        limit = args.get("limit", 5)
-        args["limit"] = max(1, min(5, int(limit)))
-        data["arguments"] = args
+    if data.get('tool') == 'get_network_flows':
+        args = data.get('arguments', {})
+        limit = args.get('limit', 5)
+        args['limit'] = max(1, min(5, int(limit)))
+        data['arguments'] = args
 
     return data
 
@@ -154,27 +158,27 @@ async def agent_step(user_query: str):
 
     # 1. RAG classification
     decision = await classify_query_with_rag(user_query)
-    tool = decision.get("tool")
-    args = decision.get("arguments", {})
+    tool = decision.get('tool')
+    args = decision.get('arguments', {})
 
     # 2. If RAG says "none", just ask the LLM
-    if tool == "none":
+    if tool == 'none':
         return {
-            "final": await ollama_chat(
-                f"User asked: {user_query} but no tool matched."
-            )
+            'final': await ollama_chat(
+                f"User asked: {user_query} but no tool matched.",
+            ),
         }
 
     # 3. Execute tool
     result = await client.call_tool(tool, args)
 
     if not result or not result.data:
-        print("Gotten no data! please check if the tools or the agent!")
+        print('Gotten no data! please check if the tools or the agent!')
         return None
 
-    print("Found the tool results")
+    print('Found the tool results')
 
-    trimmed = trim_result_to_limit(result.data, 1)    
+    trimmed = trim_result_to_limit(result.data, 1)
     # 4. Give tool result to LLM for final answer
     final_prompt = f"""
 You are a cybersecurity analyst.
@@ -193,31 +197,31 @@ Provide a final human-readable answer.
 
     analysis = await ollama_chat(final_prompt)
 
-    return {"final": analysis}
+    return {'final': analysis}
 
 
 def pretty_tools(tools):
-    print("\n🛠️  Available MCP Tools:\n")
+    print('\n🛠️  Available MCP Tools:\n')
 
     for t in tools:
         name = t.name
-        desc = t.description or "(no description)"
+        desc = t.description or '(no description)'
         schema = t.inputSchema or {}
 
         print(f"• {name}")
         print(f"    Description: {desc}")
 
-        props = schema.get("properties", {})
+        props = schema.get('properties', {})
 
         if not props:
-            print("    Arguments: none\n")
+            print('    Arguments: none\n')
             continue
 
-        print("    Arguments:")
+        print('    Arguments:')
         for arg_name, info in props.items():
-            default = info.get("default")
-            typ = info.get("type", "object")
-            title = info.get("title", arg_name)
+            default = info.get('default')
+            typ = info.get('type', 'object')
+            title = info.get('title', arg_name)
 
             print(f"      - {arg_name} ({typ})")
             if default is not None:
@@ -227,36 +231,36 @@ def pretty_tools(tools):
         print()
 
 
-
 # ---------------------------------------------------------
 # MAIN LOOP
 # ---------------------------------------------------------
 
 async def run_agent():
-    print("🔌 Connecting to MCP server...")
+    print('🔌 Connecting to MCP server...')
 
     async with client:
-        tools =  await client.list_tools()
+        tools = await client.list_tools()
         pretty_tools(tools)
     print()
 
     while True:
-        user = input(">>> ").strip()
-        if user == "/exit":
+        user = input('>>> ').strip()
+        if user == '/exit':
             break
-        
-        print("Running the agent step")
-    
+
+        print('Running the agent step')
+
         async with client:
             final = await agent_step(user)
 
         if not final:
             print("Couldn't find final!")
         try:
-            print(json.loads(final)["final"])
-        except:
+            print(json.loads(final)['final'])
+        except Exception as e:
+            print(f"An exception has occured: {e}")
             print(final)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(run_agent())

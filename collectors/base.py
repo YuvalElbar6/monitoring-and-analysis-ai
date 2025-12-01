@@ -1,6 +1,11 @@
 # collectors/base.py
-from abc import ABC, abstractmethod
+from __future__ import annotations
+
+from abc import ABC
+from abc import abstractmethod
+
 from models.unified import UnifiedEvent
+
 
 class BaseOSCollector(ABC):
 

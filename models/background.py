@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import asyncio
-from models.mcp import state
-from collectors.factory import get_collector
 import traceback
+
+from collectors.factory import get_collector
+from models.mcp import state
 
 collector = get_collector()
 
@@ -21,7 +24,7 @@ async def safe_call(name, func, *args, **kwargs):
 # -----------------------------------------------------
 async def process_monitor_loop():
     while True:
-        result = await safe_call("process", collector.collect_process_events)
+        result = await safe_call('process', collector.collect_process_events)
         if result is not None:
             state.processes = result
         await asyncio.sleep(3)
@@ -33,7 +36,7 @@ async def process_monitor_loop():
 async def network_monitor_loop():
     while True:
         # Scapy must ALWAYS run in a thread
-        result = await safe_call("network", collector.collect_network_events, 5)
+        result = await safe_call('network', collector.collect_network_events, 5)
         if result is not None:
             state.network_flows = result
         await asyncio.sleep(3)
@@ -44,11 +47,10 @@ async def network_monitor_loop():
 # -----------------------------------------------------
 async def service_monitor_loop():
     while True:
-        result = await safe_call("services", collector.collect_service_events)
+        result = await safe_call('services', collector.collect_service_events)
         if result is not None:
             state.services = result
         await asyncio.sleep(5)
-
 
 
 # -----------------------------------------------------

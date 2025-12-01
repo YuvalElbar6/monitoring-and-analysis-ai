@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 def trim_result_to_limit(data, limit=1):
     """
     Safely trims MCP tool outputs:
@@ -12,7 +15,8 @@ def trim_result_to_limit(data, limit=1):
 
     try:
         limit = int(limit)
-    except:
+    except Exception as e:
+        print(f"An exception has occured: {e}")
         limit = 1
 
     limit = max(1, min(5, limit))
@@ -26,7 +30,11 @@ def trim_result_to_limit(data, limit=1):
         trimmed = {}
         for key, val in data.items():
             if isinstance(val, list):
-                trimmed[key] = [trim_result_to_limit(x, limit) for x in val[:limit]]
+                trimmed[key] = [
+                    trim_result_to_limit(
+                        x, limit,
+                    ) for x in val[:limit]
+                ]
             elif isinstance(val, dict):
                 trimmed[key] = trim_result_to_limit(val, limit)
             else:

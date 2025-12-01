@@ -1,5 +1,9 @@
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from __future__ import annotations
+
+from datetime import datetime
+from datetime import timedelta
+from typing import Any
+
 from rag.vector_store import vector_store
 
 
@@ -13,7 +17,7 @@ def retrieve(query: str, limit: int = 5):
     try:
         return vector_store.similarity_search(query, k=limit)
     except Exception as e:
-        print("[RAG RETRIEVER ERROR]", e)
+        print('[RAG RETRIEVER ERROR]', e)
         return []
 
 
@@ -28,10 +32,10 @@ def retrieve_filtered(query: str, type_filter: str, limit: int = 5):
         return vector_store.similarity_search(
             query,
             k=limit,
-            filter={"type": type_filter}
+            filter={'type': type_filter},
         )
     except Exception as e:
-        print("[RAG RETRIEVER FILTER ERROR]", e)
+        print('[RAG RETRIEVER FILTER ERROR]', e)
         return []
 
 
@@ -48,13 +52,13 @@ def retrieve_recent(query: str, minutes: int = 5, limit: int = 5):
             query,
             k=limit,
             filter={
-                "timestamp": {
-                    "$gte": since.isoformat()
-                }
-            }
+                'timestamp': {
+                    '$gte': since.isoformat(),
+                },
+            },
         )
     except Exception as e:
-        print("[RAG RETRIEVER RECENT ERROR]", e)
+        print('[RAG RETRIEVER RECENT ERROR]', e)
         return []
 
 
@@ -64,9 +68,9 @@ def retrieve_recent(query: str, minutes: int = 5, limit: int = 5):
 def retrieve_advanced(
     query: str,
     limit: int = 10,
-    types: Optional[List[str]] = None,
-    since_minutes: Optional[int] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    types: list[str] | None = None,
+    since_minutes: int | None = None,
+    metadata: dict[str, Any] | None = None,
 ):
     """
     Most powerful retrieval function.
@@ -79,18 +83,18 @@ def retrieve_advanced(
         flt = metadata.copy() if metadata else {}
 
         if types:
-            flt["type"] = {"$in": types}
+            flt['type'] = {'$in': types}
 
         if since_minutes:
             since = datetime.utcnow() - timedelta(minutes=since_minutes)
-            flt["timestamp"] = {"$gte": since.isoformat()}
+            flt['timestamp'] = {'$gte': since.isoformat()}
 
         return vector_store.similarity_search(
             query,
             k=limit,
-            filter=flt if flt else None
+            filter=flt if flt else None,
         )
 
     except Exception as e:
-        print("[RAG ADVANCED RETRIEVER ERROR]", e)
+        print('[RAG ADVANCED RETRIEVER ERROR]', e)
         return []

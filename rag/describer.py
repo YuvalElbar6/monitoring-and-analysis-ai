@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from helper.extract_json import extract_json
-from rag.retriever import retrieve
 from rag.engine import call_ollama
+from rag.retriever import retrieve
+
 
 async def describe_process_with_rag(process_name: str, exe: str, username: str):
     """
@@ -11,7 +14,7 @@ async def describe_process_with_rag(process_name: str, exe: str, username: str):
     query = f"What is the process '{process_name}' running as {exe}?"
 
     docs = retrieve(query, limit=5)
-    context = "\n\n---\n\n".join([d.page_content for d in docs])
+    context = '\n\n---\n\n'.join([d.page_content for d in docs])
 
     prompt = f"""
 You are a process description engine.
@@ -34,4 +37,4 @@ Your description must be 1-3 sentences.
     """
 
     result = await call_ollama(prompt)
-    return extract_json(result)["description"]
+    return extract_json(result)['description']
