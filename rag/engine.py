@@ -20,7 +20,7 @@ class RAGResponse:
 # LLM CALL (Ollama)
 # ---------------------------------------------------------
 
-async def call_ollama(prompt: str, model: str = "mistral:latest") -> str:
+async def call_ollama(prompt: str, model: str = "gemma3:1b") -> str:
     url = f"{BASE_OLLAMA_URL}/api/chat"
 
     payload = {

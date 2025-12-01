@@ -5,7 +5,7 @@ import httpx
 from fastmcp.client import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from helper.trimmer import trim_result_to_limit
+from helper.extract_json import extract_json
 from os_env import MCP_SERVER_URL, BASE_OLLAMA_URL
 from rag.retriever import retrieve
 
@@ -25,7 +25,7 @@ client = Client(transport=transport)
 # OLLAMA CHAT (your existing RAG/agent brain)
 # ---------------------------------------------------------
 
-async def ollama_chat(prompt: str, model="mistral:latest"):
+async def ollama_chat(prompt: str, model="gemma3:1b"):
     url = f"{BASE_OLLAMA_URL}/api/chat"
     payload = {
         "model": model,
@@ -134,9 +134,8 @@ Return ONLY the JSON dictionary.
     raw = await ollama_chat(prompt)
 
     # -------- JSON parse & cleanup --------
-    import json
     try:
-        data = json.loads(raw)
+        data = extract_json(raw)
     except:
         return {"tool": "none", "arguments": {}}
 
@@ -174,8 +173,6 @@ async def agent_step(user_query: str):
 
     print("Found the tool results")
     
-    trimmed = trim_result_to_limit(result.data, 1)
-    print("Trimmed the data to make it shorter")
     # 4. Give tool result to LLM for final answer
     final_prompt = f"""
 You are a cybersecurity analyst.
@@ -187,7 +184,7 @@ Tool used: {tool}
 Arguments: {args}
 
 Tool output:
-{json.dumps(trimmed, indent=2)}
+{json.dumps(result.data, indent=2)}
 
 Provide a final human-readable answer.
 """

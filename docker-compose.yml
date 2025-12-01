@@ -1,0 +1,87 @@
+version: "3.9"
+
+services:
+  ###################################################
+  # 1. OLLAMA (LLM backend: Gemma 3 9B, 27B, etc.)
+  ###################################################
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+    volumes:
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  ###################################################
+  # 2. CHROMA DB (Vector store for RAG)
+  ###################################################
+  chroma:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: chroma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma-data
+
+  ###################################################
+  # 3. MCP SERVER + AGENT (your Python project)
+  ###################################################
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp_server
+    restart: unless-stopped
+    depends_on:
+      - ollama
+      - chroma
+    ports:
+      - "8001:8001"
+    environment:
+      # MCP Server settings
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8001"
+
+      # Ollama for Gemma
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      API_KEY: "ollama"
+
+      # Chroma DB for RAG
+      CHROMA_HOST: "chroma"
+      CHROMA_PORT: "8000"
+
+    volumes:
+      - .:/app
+
+  ###################################################
+  # 4. OPTIONAL: OPENWEBUI for debug / testing
+  ###################################################
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: openwebui
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    ports:
+      - "3000:3000"
+    environment:
+      OLLAMA_BASE_URL: "http://ollama:11434"
+    volumes:
+      - openwebui_data:/app/backend/data
+
+###################################################
+# VOLUMES
+###################################################
+volumes:
+  ollama_models:
+  chroma_data:
+  openwebui_data:

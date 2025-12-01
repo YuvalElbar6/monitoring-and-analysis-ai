@@ -12,6 +12,8 @@ This file is completely self-contained and safe for:
 
 from typing import List, Dict, Any
 
+from vt_check import scan_file_rag_intel
+
 
 # ============================================================
 # HELPERS
@@ -96,6 +98,20 @@ def analyze_process(proc: Dict[str, Any]) -> Dict[str, Any]:
         if cpu > 10 or mem > 10:
             score += 2
             reasons.append("Privileged system process with unusual resource usage.")
+
+    try:
+        scan_result = scan_file_open_source(exe)
+    except Exception as e:
+        scan_result = {
+            "file": exe,
+            "overall": "unknown",
+            "error": str(e)
+        }
+
+    # Combine score with malware scan
+    final_score = scan_result["overall"]
+    if scan_result["overall"] == "malicious":
+        final_score += 10
 
     # -----------------------------
     # 4. Network Connections

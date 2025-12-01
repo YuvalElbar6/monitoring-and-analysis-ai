@@ -3,9 +3,11 @@ import sys
 from fastmcp import FastMCP
 from models.mcp import MCPNetworkQuery, MCPRAGQuery
 from collectors.factory import get_collector
+from rag.describer import describe_process_with_rag
 from rag.engine import answer_with_rag
 from os_env import SERVER_HOST, SERVER_PORT
 from analysis import analyze_process, analyze_network_flow, analyze_service_event, analyze_service_events
+from vt_check import scan_file_rag_intel
 
 
 collector = get_collector()
@@ -78,32 +80,39 @@ async def search_findings(query: str):
     return rag.dict()
 
 
+@app.tool()
+async def threat_lookup(args):
+    entity = args.get("entity")
+    result = await scan_file_rag_intel(entity)
+    return result.__dict__
+
 
 
 @app.tool()
 async def analyze_processes(args=None):
-    """
-    Analyze all running processes and return a ranked list of anomalies.
-    Cross-platform.
-    """
-
-    # Collect raw events from OS collector
     events = collector.collect_process_events()
+    results = []
 
-    # Convert each UnifiedEvent → dict → analyze it
-    processed = [analyze_process(e.model_dump()) for e in events]
+    for e in events:
+        raw = e.model_dump()
+        base = analyze_process(raw)  # existing scoring logic
 
-    # Sort descending by risk score
-    processed.sort(key=lambda x: x["risk_score"], reverse=True)
+        # Add RAG description
+        desc = await describe_process_with_rag(
+            base["name"],
+            base["exe"],
+            base["username"]
+        )
 
-    # Optional: trim to top 10 for readability
-    top_results = processed[:10]
+        base["rag_description"] = desc
+        results.append(base)
+
+    results.sort(key=lambda x: x["risk_score"], reverse=True)
 
     return {
-        "analysis": top_results,
-        "total_processes": len(processed)
+        "analysis": results,
+        "total_processes": len(events)
     }
-
 
 @app.tool()
 async def analyze_network(args=None):
