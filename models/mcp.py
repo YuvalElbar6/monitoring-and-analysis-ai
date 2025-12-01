@@ -1,31 +1,11 @@
-# mcp_models.py
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Dict
+from dataclasses import dataclass, field
 
+@dataclass
+class SharedState:
+    processes: List[Dict] = field(default_factory=list)
+    network_flows: List[Dict] = field(default_factory=list)
+    services: List[Dict] = field(default_factory=list)
+    findings: List[Dict] = field(default_factory=list)
 
-class MCPNetworkQuery(BaseModel):
-    duration_minutes: int = 5
-
-
-class MCPEventTypeQuery(BaseModel):
-    event_type: str = "all"
-
-
-class MCPProcessList(BaseModel):
-    processes: List[Dict[str, Any]]
-
-
-class MCPNetworkFlowList(BaseModel):
-    flows: List[Dict[str, Any]]
-
-
-class MCPServiceEventList(BaseModel):
-    service_events: List[Dict[str, Any]]
-
-
-class MCPRAGQuery(BaseModel):
-    query: str
-
-
-class MCPRAGResponse(BaseModel):
-    results: List[str]
+state = SharedState()

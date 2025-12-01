@@ -6,6 +6,7 @@ from fastmcp.client import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from helper.extract_json import extract_json
+from helper.trimmer import trim_result_to_limit
 from os_env import MCP_SERVER_URL, BASE_OLLAMA_URL
 from rag.retriever import retrieve
 
@@ -25,7 +26,7 @@ client = Client(transport=transport)
 # OLLAMA CHAT (your existing RAG/agent brain)
 # ---------------------------------------------------------
 
-async def ollama_chat(prompt: str, model="gemma3:1b"):
+async def ollama_chat(prompt: str, model="gemma3:4b"):
     url = f"{BASE_OLLAMA_URL}/api/chat"
     payload = {
         "model": model,
@@ -43,7 +44,7 @@ async def ollama_chat(prompt: str, model="gemma3:1b"):
 # ---------------------------------------------------------
 async def classify_query_with_rag(user_query: str):
     """
-    Use RAG + Mistral to determine which MCP tool to call.
+    Use RAG + Gemma3 to determine which MCP tool to call.
     Ensures:
     - Valid JSON output
     - Valid argument schemas per tool
@@ -172,7 +173,8 @@ async def agent_step(user_query: str):
         return None
 
     print("Found the tool results")
-    
+
+    trimmed = trim_result_to_limit(result.data, 1)    
     # 4. Give tool result to LLM for final answer
     final_prompt = f"""
 You are a cybersecurity analyst.
@@ -184,7 +186,7 @@ Tool used: {tool}
 Arguments: {args}
 
 Tool output:
-{json.dumps(result.data, indent=2)}
+{json.dumps(trimmed, indent=2)}
 
 Provide a final human-readable answer.
 """

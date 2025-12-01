@@ -1,22 +1,50 @@
 # server.py
+import asyncio
+from contextlib import asynccontextmanager
 import sys
 from fastmcp import FastMCP
-from models.mcp import MCPNetworkQuery, MCPRAGQuery
 from collectors.factory import get_collector
+from models.background import network_monitor_loop, process_monitor_loop, service_monitor_loop, start_background_monitors
 from rag.describer import describe_process_with_rag
 from rag.engine import answer_with_rag
 from os_env import SERVER_HOST, SERVER_PORT
-from analysis import analyze_process, analyze_network_flow, analyze_service_event, analyze_service_events
+from analysis import analyze_process, analyze_network_flow, analyze_service_event
 from vt_check import scan_file_rag_intel
 
 
 collector = get_collector()
 
+
+@asynccontextmanager
+async def lifespan(app):
+    print("🚀 Starting background collectors...")
+    tasks = await start_background_monitors()
+
+
+    print("🚀 Background collectors started.")
+
+    try:
+        yield  # FastMCP runs normally here
+    finally:
+        print("🛑 Shutting down background collectors...")
+
+        # cancel all tasks
+        for t in tasks:
+            t.cancel()
+
+        # wait until all tasks die
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        print("✅ Background collectors stopped cleanly.")
+
+
 app = FastMCP(
     name="PCSystemMonitor",
     host=SERVER_HOST,
-    port=SERVER_PORT
+    port=SERVER_PORT,
+    lifespan=lifespan
 )
+
 
 # ------------------------------------------------------
 # RESOURCES (CORRECT, NO TEMPLATE ERRORS)
@@ -66,6 +94,11 @@ def get_testing_ping():
 async def get_running_processes():
     events = collector.collect_process_events()
     return {"processes": [e.model_dump() for e in events]}
+
+@app.tool()
+async def get_running_services():
+    events = collector.collect_service_events()
+    return {"services": [e.model_dump() for e in events]}
 
 
 @app.tool()
