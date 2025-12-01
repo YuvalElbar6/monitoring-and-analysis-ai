@@ -54,56 +54,81 @@ async def classify_query_with_rag(user_query: str):
     context = "\n\n---\n\n".join(d.page_content for d in docs)
 
     # -------- Classification Prompt --------
-    prompt = f"""
+    prompt  = f"""
 You are a cybersecurity tool classifier.
 
-Your job:
-- Read the context
-- Understand the user's intent
-- Choose EXACTLY ONE tool from the list below
+Your responsibilities:
+- Read the context retrieved by RAG
+- Understand the user's intention
+- Select EXACTLY ONE tool from the list below
 - Produce VALID JSON ONLY
-- Respect argument schemas EXACTLY
-- If the tool has a "limit" parameter, it MUST be between 1 and 5
+- Follow every argument schema exactly
+- If a tool has a limit parameter, it MUST be an integer between 1 and 5
+- If the tool requires no arguments, you MUST return an empty object
 
 ====================
 Context:
 {context}
 ====================
 
-User asked: "{user_query}"
+User query: "{user_query}"
 
-Valid tools & REQUIRED argument schemas:
+Available MCP tools and their argument schemas
+(you MUST follow these schemas exactly):
 
-1) get_running_processes
+1) get_running_processes  
    Arguments MUST be:
    {{}}
 
-2) get_network_flows
+2) get_network_flows  
    Arguments MUST be:
    {{
       "limit": <integer between 1 and 5>,
       "duration_minutes": <integer or null>
    }}
 
-3) search_findings
+3) search_findings  
    Arguments MUST be:
    {{
       "query": "<string>"
    }}
 
-4) none
-   Arguments MUST be {{}}
+4) analyze_processes  
+   Arguments MUST be:
+   {{}}
+
+5) analyze_network  
+   Arguments MUST be:
+   {{}}
+
+6) analyze_services  
+   Arguments MUST be:
+   {{}}
+
+7) analyze_all  
+   Arguments MUST be:
+   {{}}
+
+8) none  
+   Arguments MUST be:
+   {{}}
 
 ====================
 
 Output Rules:
 - ALWAYS return valid JSON
-- NEVER add parameters not listed in the schemas
+- NEVER return explanations or text outside the JSON
+- NEVER add fields that are not listed
 - NEVER omit required fields
-- If unsure, return: {{ "tool": "none", "arguments": {{}} }}
+- If you are not confident which tool to use, return:
+  {{
+     "tool": "none",
+     "arguments": {{}}
+  }}
 
-Return ONLY JSON.
+Return ONLY the JSON dictionary.
 """
+
 
     # -------- Call Ollama -------
     raw = await ollama_chat(prompt)
