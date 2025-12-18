@@ -17,7 +17,6 @@ from os_env import SERVER_PORT
 from rag.describer import describe_process_with_rag
 from rag.engine import answer_with_rag
 from storage.storage_writer import _db_worker
-from vt_check import scan_file_rag_intel
 
 
 @asynccontextmanager
@@ -185,24 +184,6 @@ async def search_findings(query: str):
     rag = await answer_with_rag(query)
     return rag.dict()
 
-
-@app.tool()
-async def threat_lookup(args):
-    """
-    Threat Intelligence Tool.
-    Scans a specific file hash or entity against VirusTotal and internal RAG data.
-
-    Args:
-        args (dict): Must contain key 'entity' (the file hash, IP, or filename).
-    """
-    entity = args.get('entity')
-    result = await scan_file_rag_intel(entity)
-    return result.__dict__
-
-
-# ------------------------------------------------------
-# ANALYSIS TOOLS (AI Enhanced)
-# ------------------------------------------------------
 
 @app.tool()
 async def analyze_processes(args=None):

@@ -122,9 +122,32 @@ async def network_monitor_loop():
         traceback.print_exc()
         await asyncio.sleep(5)
 
-# -----------------------------------------------------
-# MASTER STARTER
-# -----------------------------------------------------
+
+async def hardware_monitor_loop():
+    """
+    Background task that monitors CPU, RAM, and GPU spikes.
+    Polls the system every 15 seconds.
+    """
+    print('[Background] Hardware monitor started.')
+    while True:
+        try:
+            # Check for spikes using your Pydantic model logic
+            # Use asyncio.to_thread because psutil calls can sometimes block
+            events = await asyncio.to_thread(collector.collect_hardware_events, 40.0, 40.0)
+
+            if events:
+                for ev in events:
+                    write_event(ev)
+
+            # Wait 15 seconds before the next check
+            await asyncio.sleep(15)
+
+        except asyncio.CancelledError:
+            print('[Background] Hardware monitor stopping...')
+            return
+        except Exception as e:
+            print(f"[Background] Hardware monitor error: {e}")
+            await asyncio.sleep(15)
 
 
 async def start_background_monitors():
@@ -136,4 +159,5 @@ async def start_background_monitors():
         asyncio.create_task(process_monitor_loop()),
         asyncio.create_task(service_monitor_loop()),
         asyncio.create_task(network_monitor_loop()),
+        asyncio.create_task(hardware_monitor_loop()),
     ]
