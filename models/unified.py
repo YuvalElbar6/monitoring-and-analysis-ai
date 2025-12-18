@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 
-EventType = Literal['network_flow', 'process', 'service_event']
+EventType = Literal['network_flow', 'process', 'service_event', 'hardware_spike']
 
 
 class UnifiedEvent(BaseModel):

@@ -264,7 +264,7 @@ async def analyze_services(args=None):
 
 
 @app.tool()
-async def analyze_hardware_spikes(limit: int = 15, **kwargs):
+async def analyze_hardware_spikes(limit: int = 15):
     """
     Analyzes recent hardware resource spikes (CPU, RAM, GPU).
     Identifies 'heavy' processes and calculates risk scores based on resource abuse.
