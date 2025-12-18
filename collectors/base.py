@@ -23,3 +23,7 @@ class BaseOSCollector(ABC):
         Network events are streaming (sniff), so this may be a generator.
         """
         pass
+
+    @abstractmethod
+    def collect_hardware_events(self) -> list[UnifiedEvent]:
+        pass

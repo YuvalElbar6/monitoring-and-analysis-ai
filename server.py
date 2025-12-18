@@ -43,6 +43,7 @@ async def lifespan(app):
 
         # Stop the DB worker gracefully
         _db_worker.stop()
+        print('✅ Shutdown complete.')
 
 
 app = FastMCP(
@@ -322,6 +323,6 @@ if __name__ == '__main__':
     try:
         app.run(transport='streamable-http')
     except KeyboardInterrupt:
-        print('\n[INFO] Server stopping...')
+        print('\n[INFO] Server stopping...', file=sys.stderr)
     except Exception as e:
-        print(f"\n[ERROR] Server crashed: {e}")
+        print(f"\n[ERROR] Server crashed: {e}", file=sys.stderr)

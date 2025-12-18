@@ -1,112 +1,132 @@
-# models/background.py
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 import traceback
 
 from collectors.factory import get_collector
 from storage.storage_writer import write_event
-# 1. Import the Writer function we created earlier
-# 2. Import your Collector Factory
 
 # Initialize collector once
 collector = get_collector()
-
-
-async def safe_to_thread(func, *args, **kwargs):
-    """
-    Helper to run blocking collector functions in a separate thread
-    so they don't freeze the Async Server.
-    """
-    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 # -----------------------------------------------------
 # 1. PROCESS MONITOR LOOP
 # -----------------------------------------------------
 async def process_monitor_loop():
+    """
+    Background task that continuously monitors system processes.
+    """
     print('[Background] Process monitor started.')
+
     while True:
         try:
-            # Run the blocking collection in a thread
-            events = await safe_to_thread(collector.collect_process_events)
+            # 1. Offload blocking work to thread
+            events = await asyncio.to_thread(collector.collect_process_events)
 
-            # Write events to DB
+            # 2. Write to DB
             if events:
                 for ev in events:
-                    # Uses the non-blocking queue writer
                     write_event(ev)
-            # Snapshot every 10 seconds
+
+            # 3. Standard Interval Sleep (10s)
             await asyncio.sleep(10)
-        except Exception:
-            print('[Background] Process monitor failed:')
-            traceback.print_exc()
 
         except asyncio.CancelledError:
-            # SILENT EXIT: Server is shutting down
             print('[Background] Process monitor stopping...')
             return
+
+        except Exception:
+            # SAFETY SLEEP: Prevents CPU spikes on error
+            print('[Background] Process monitor failed. Retrying in 10s...')
+            traceback.print_exc()
+            await asyncio.sleep(10)
 
 
 # -----------------------------------------------------
 # 2. SERVICE MONITOR LOOP
 # -----------------------------------------------------
 async def service_monitor_loop():
+    """
+    Background task that monitors system services.
+    """
     print('[Background] Service monitor started.')
+
     while True:
         try:
-            # Fetch services (limit 50 to avoid spam)
-            events = await safe_to_thread(collector.collect_service_events, limit=50)
+            # 1. Fetch services (limit 50 to avoid spam)
+            # Use asyncio.to_thread directly (standard Python 3.9+)
+            events = await asyncio.to_thread(collector.collect_service_events, limit=50)
 
+            # 2. Write to DB
             if events:
                 for ev in events:
                     write_event(ev)
 
-            # Check services every 30 seconds
+            # 3. Check services every 30 seconds
             await asyncio.sleep(30)
-
-        except Exception:
-            print('[Background] Service monitor failed:')
-            traceback.print_exc()
 
         except asyncio.CancelledError:
             print('[Background] Service monitor stopping...')
             return
+
+        except Exception:
+            # SAFETY SLEEP: Prevents CPU spikes on error
+            print('[Background] Service monitor failed. Retrying in 30s...')
+            traceback.print_exc()
+            await asyncio.sleep(30)
 
 
 # -----------------------------------------------------
 # 3. NETWORK MONITOR LOOP (Streaming)
 # -----------------------------------------------------
 async def network_monitor_loop():
+    """
+    Background task that sniffs network packets.
+    Uses a DAEMON thread so it doesn't hang the server on exit.
+    """
     print('[Background] Network monitor started.')
 
-    # Network sniffing is a continuous blocking stream,
-    # so we wrap the WHOLE thing in a thread.
     def _blocking_sniffer():
-        # This loop runs inside a thread, so it can block safely
         while True:
             try:
-                # Assuming collect_network_events is a generator (yields packets)
+                # This blocks until a packet arrives
                 for event in collector.collect_network_events():
                     if event:
                         write_event(event)
             except Exception as e:
-                print(f"[Background] Sniffer crashed: {e}")
-                time.sleep(2)  # restart delay
+                print(f"[Background] Sniffer thread error: {e}")
+                time.sleep(2)
 
-    # Launch the blocking sniffer in a separate thread
+    # FIX: Use a manual Thread with daemon=True
+    # This ensures Python kills it instantly when the server stops.
+    sniffer_thread = threading.Thread(target=_blocking_sniffer, daemon=True)
+    sniffer_thread.start()
+
     try:
-        await safe_to_thread(_blocking_sniffer)
+        # Keep this async task alive to "monitor" the thread
+        # We just sleep forever until cancelled
+        while True:
+            await asyncio.sleep(1)
 
     except asyncio.CancelledError:
-        print('[Background] Service monitor stopping...')
+        print('[Background] Network monitor stopping...')
+        # We don't need to kill the thread manually;
+        # because it is a DAEMON, it will die when the process exits.
         return
 
+    except Exception:
+        print('[Background] Network monitor main task crashed.')
+        traceback.print_exc()
+        await asyncio.sleep(5)
 
 # -----------------------------------------------------
 # MASTER STARTER
 # -----------------------------------------------------
+
+
 async def start_background_monitors():
     """
     Called by server.py lifespan.

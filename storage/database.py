@@ -109,3 +109,13 @@ class DatabaseWorker:
                 session.commit()
         except Exception as e:
             print(f"[DB Error] {e}")
+
+    def stop(self):
+        """Stops the worker thread safely."""
+        self.running = False
+        # FIX: Send 'None' (Poison Pill) to unblock the queue.get() immediately
+        self.queue.put(None)
+
+        # Wait for the thread to finish (max 2 seconds)
+        if self.thread.is_alive():
+            self.thread.join(timeout=2.0)
