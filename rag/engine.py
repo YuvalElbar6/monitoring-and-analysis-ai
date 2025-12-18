@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx
 
+from helper.json_helper import extract_json
 from os_env import BASE_OLLAMA_URL
 from rag.retriever import retrieve
 
@@ -56,53 +57,65 @@ async def call_ollama(prompt: str, model: str = 'gemma3:4b') -> str:
 # ---------------------------------------------------------
 
 async def answer_with_rag(query: str) -> RAGResponse:
-    # 1. Retrieve relevant documents
-    docs = retrieve(query)
+    """
+    Answers a question using RAG, strictly returning JSON with citations.
+    """
 
-    # Extract content + IDs
+    # 1. Retrieve relevant documents
+    docs = retrieve(query, limit=5)
+
+    if not docs:
+        return RAGResponse(answer='No relevant system events found in the database.', citations=[])
+
+    # 2. Build Context with Explicit IDs
+    # We assign IDs so the LLM can reference them accurately.
     pages = [d.page_content for d in docs]
     doc_ids = [d.metadata.get('id', f"doc-{i}") for i, d in enumerate(docs)]
 
-    # 2. Build text context
     context = ''
     for i, (text, doc_id) in enumerate(zip(pages, doc_ids)):
         context += f"\n[Document {i+1} | ID: {doc_id}]\n{text}\n---\n"
 
-    # 3. Build forensic prompt
+    # 3. Build Forensic Prompt (Negative Constraints applied)
     prompt = f"""
 You are a forensic analysis AI.
-Use ONLY the context provided. Do NOT hallucinate.
+Use ONLY the context provided below. Do NOT hallucinate.
 
 Context:
 {context}
 
 Question: {query}
 
-You MUST return JSON in the following format:
+Instructions:
+1. Analyze the context to answer the question.
+2. If the answer is not in the context, say "Not found".
+3. Cite the exact Document IDs you used.
 
+OUTPUT FORMAT:
+Return ONLY a raw JSON object.
+Do NOT use Markdown formatting (no ```json blocks).
+Do NOT include conversational filler.
+
+Expected JSON Structure:
 {{
-  "answer": "<final conclusion>",
-  "citations": ["<document-id-1>", "<document-id-2>"]
+  "answer": "The user ran calc.exe at 14:00...",
+  "citations": ["network_flow_123...", "process_456..."]
 }}
-
-Rules:
-- "citations" MUST be document IDs from the context.
-- If answer cannot be found, answer "Not found".
-- Do NOT cite anything not explicitly in the context.
 """
 
-    # 4. Call the LLM
+    # 4. Call LLM
     raw_answer = await call_ollama(prompt)
 
-    # 5. Best effort JSON extraction
-    try:
-        import json
-        data = json.loads(raw_answer)
-        answer = data.get('answer', raw_answer)
-        citations = data.get('citations', [])
-    except Exception:
-        # Fallback if model returns plain text
-        answer = raw_answer
-        citations = doc_ids
+    # 5. Robust Extraction
+    data = extract_json(raw_answer)
 
-    return RAGResponse(answer=answer, citations=citations)
+    if data and 'answer' in data:
+        return RAGResponse(
+            answer=data['answer'],
+            citations=data.get('citations', []),
+        )
+
+    # 6. Fallback (If LLM ignores JSON instructions)
+    # We return the raw text, but clean it up slightly
+    clean_text = raw_answer.replace('```json', '').replace('```', '').strip()
+    return RAGResponse(answer=clean_text, citations=[])

@@ -12,6 +12,7 @@ for embedding.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from models.unified import UnifiedEvent
@@ -40,15 +41,12 @@ def event_to_document(event: UnifiedEvent) -> dict[str, Any]:
         f"Event Type: {event.type}",
         f"Timestamp: {event.timestamp.isoformat()}",
     ]
-
-    # Flatten specific details for better semantic search context
     if isinstance(event.details, dict):
         for k, v in event.details.items():
             lines.append(f"{k}: {v}")
     else:
         lines.append(f"Details: {event.details}")
 
-    # Add metadata to the text body so the AI knows about it too
     if event.metadata:
         lines.append('Metadata:')
         for k, v in event.metadata.items():
@@ -56,27 +54,22 @@ def event_to_document(event: UnifiedEvent) -> dict[str, Any]:
 
     text = '\n'.join(lines)
 
-    # ---------------------------------------------------------
-    # 2. GENERATE UNIQUE ID
-    # ---------------------------------------------------------
-    # We combine Type + Timestamp + Hash of content to ensure uniqueness.
-    # This prevents overwriting events that happen in the same microsecond.
-    content_hash = hash(text) & 0xffffffff  # Limit hash size
-    uid = f"{event.type}_{event.timestamp.timestamp()}_{content_hash}"
+    # --- THE FIX ---
+    # Old way: Timestamp + Hash (Collides on identical repeating packets)
+    # New way: Timestamp + Hash + Random Short UUID
+    content_hash = hash(text) & 0xffffffff
+    random_suffix = uuid.uuid4().hex[:8]  # Adds randomness
 
-    # ---------------------------------------------------------
-    # 3. FORMAT METADATA (For database filtering)
-    # ---------------------------------------------------------
-    # ChromaDB requires metadata values to be str, int, float, or bool.
-    # We convert complex types to strings to prevent crashes.
+    uid = f"{event.type}_{event.timestamp.timestamp()}_{content_hash}_{random_suffix}"
+
+    # ... (Rest of function remains the same) ...
+
     safe_metadata = {
         'type': str(event.type),
         'timestamp': event.timestamp.isoformat(),
     }
-
     if event.metadata:
         for k, v in event.metadata.items():
-            # Convert lists/dicts to string representation for safety
             if isinstance(v, (list, dict)):
                 safe_metadata[k] = str(v)
             else:
