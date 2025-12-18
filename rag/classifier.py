@@ -156,6 +156,9 @@ Tool output Data:
 
 Based on the data above, provide a concise, human-readable answer to the user.
 Highlight any risks or anomalies found.
+IMPORTANT:
+- ANSWER IN ENGLISH ONLY.
+- Do not use any other language.
 """
 
     analysis = await call_ollama(final_prompt)
