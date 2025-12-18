@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastmcp import FastMCP
 
 from analysis import analyze_hardware
+from analysis import analyze_malware_event
 from analysis import analyze_network_flow
 from analysis import analyze_process
 from analysis import analyze_service_event
@@ -287,6 +288,34 @@ async def analyze_hardware_spikes(limit: int = 15):
 
 
 @app.tool()
+async def analyze_malware(limit: int = 20):
+    """
+    Analyzes recent system logs for malware indicators.
+    Returns a prioritized list of suspicious entities requiring external reputation lookups.
+
+    Args:
+        limit (int): Number of recent suspicious events to examine.
+    """
+    # 1. Fetch recent malware alerts from the database
+    events = _db_worker.get_recent_events('malware_alert', limit=limit)
+
+    if not events:
+        return {'status': 'Clean', 'message': 'No immediate malware signatures detected.'}
+
+    # 2. Process events through your evaluation logic
+    results = [analyze_malware_event(e) for e in events]
+
+    # 3. Sort by risk level (highest first)
+    results.sort(key=lambda x: x.get('risk_level', 0), reverse=True)
+
+    return {
+        'summary': f"Detected {len(results)} suspicious behaviors.",
+        'findings': results,
+        'next_step': "For items where 'verdict_needed' is True, use 'threat_lookup' or 'internet_search'.",
+    }
+
+
+@app.tool()
 async def analyze_all(args=None):
     """
     Master Analysis Tool.
@@ -305,21 +334,24 @@ async def analyze_all(args=None):
     nevents = _db_worker.get_recent_events('network_flow')
     sevents = _db_worker.get_recent_events('service_event')
     hevents = _db_worker.get_recent_events('hardware_spike')
+    mevents = _db_worker.get_recent_events('malware_event')
 
     # 2. Analyze everything using our analysis engine
     process_results = [analyze_process(e) for e in pevents]
     network_results = [analyze_network_flow(e) for e in nevents]
     service_results = [analyze_service_event(e) for e in sevents]
     hardware_results = [analyze_hardware(e) for e in hevents]
+    malware_results = [analyze_malware_event(e) for e in mevents]
 
     # 3. Sort by risk
-    for res_list in [process_results, network_results, service_results, hardware_results]:
+    for res_list in [process_results, network_results, service_results, hardware_results, malware_results]:
         res_list.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
     return {
         'process_analysis': process_results,
         'network_analysis': network_results,
         'service_analysis': service_results,
         'hardware_analysis': hardware_results,
+        'malware_analysis': malware_results,
     }
 
 

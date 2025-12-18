@@ -8,6 +8,7 @@ from scapy.layers.inet6 import IPv6
 
 from collectors.base import BaseOSCollector
 from models.hardware import HardwareEvent
+from models.malware import MalwareEvent
 from models.network import NetworkEvent
 from models.process import ProcessEvent
 from models.services import ServiceEvent
@@ -170,6 +171,30 @@ class WindowsCollector(BaseOSCollector):
                     type='hardware_spike',
                     details=spike.model_dump(mode='json'),
                     metadata={'os': 'windows', 'collector': 'hardware_pydantic'},
+                ),
+            )
+
+        return unified_events
+
+    def collect_malware_events(self) -> list[UnifiedEvent]:
+        """
+        Scans Windows processes for behavioral threats.
+        """
+        unified_events = []
+
+        # The generic scan handles the heavy lifting (Checking shells, temp paths, masquerading)
+        detected_threats = MalwareEvent.scan_system_for_threats()
+
+        for threat in detected_threats:
+            unified_events.append(
+                UnifiedEvent(
+                    type='malware_alert',
+                    details=threat.model_dump(mode='json'),
+                    metadata={
+                        'os': 'windows',
+                        'collector': 'behavioral_scanner',
+                        'scan_mode': 'active',
+                    },
                 ),
             )
 

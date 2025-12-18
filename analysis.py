@@ -262,25 +262,6 @@ def analyze_service_event(event: dict[str, Any] | str) -> dict[str, Any]:
     }
 
 
-# ============================================================
-# BATCH ANALYSIS HELPERS
-# ============================================================
-
-def analyze_processes(process_list: list[Any]) -> list[dict[str, Any]]:
-    """Batch processes multiple process events."""
-    return [analyze_process(p) for p in process_list]
-
-
-def analyze_network_flows(flow_list: list[Any]) -> list[dict[str, Any]]:
-    """Batch processes multiple network events."""
-    return [analyze_network_flow(f) for f in flow_list]
-
-
-def analyze_service_events(event_list: list[Any]) -> list[dict[str, Any]]:
-    """Batch processes multiple service events."""
-    return [analyze_service_event(e) for e in event_list]
-
-
 def analyze_hardware(event: dict[str, Any] | str) -> dict[str, Any]:
     """
     Evaluates hardware spikes for security and performance risks.
@@ -358,11 +339,30 @@ def analyze_hardware(event: dict[str, Any] | str) -> dict[str, Any]:
     }
 
 
+def analyze_malware_event(event: dict[str, Any] | str) -> dict[str, Any]:
+    """
+    Evaluates a malware event and prepares it for an internet threat lookup.
+    """
+    event = _parse_input(event)
+    details = event.get('details', {})
+
+    # We return the data in a format the Agent can easily use to
+    # trigger a 'threat_lookup' or 'internet_search'
+    return {
+        'risk_level': details.get('risk_score'),
+        'suspect_process': details.get('name'),
+        'binary_path': details.get('exe'),
+        'detection_reasons': details.get('reasons'),
+        'verdict_needed': True if details.get('risk_score', 0) > 5 else False,
+    }
+
+
 EVENT_TO_TYPE = {
     'process': analyze_process,
     'network_flow': analyze_network_flow,
     'service_event':  analyze_service_event,
     'hardware_spike': analyze_hardware,
+    'malware_event': analyze_malware_event,
 }
 
 

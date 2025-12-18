@@ -27,3 +27,7 @@ class BaseOSCollector(ABC):
     @abstractmethod
     def collect_hardware_events(self) -> list[UnifiedEvent]:
         pass
+
+    @abstractmethod
+    def collect_malware_events(self) -> list[UnifiedEvent]:
+        pass

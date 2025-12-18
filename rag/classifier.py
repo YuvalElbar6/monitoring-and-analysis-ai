@@ -49,7 +49,8 @@ Available MCP tools:
 6) analyze_services (Args: {{}})
 7) analyze_all (Args: {{}})
 8) analyze_hardware_spikes (Args: {{"limit": <int 1 - 20>}})
-9) none (Args: {{}})
+9) analyze_malware (Args: {{"limit": <int 1 - 20>}})
+10) none (Args: {{}})
 
 OUTPUT RULES:
 1. Return ONLY the raw JSON object.

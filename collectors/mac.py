@@ -11,6 +11,7 @@ from scapy.layers.inet6 import IPv6
 
 from collectors.base import BaseOSCollector
 from models.hardware import HardwareEvent
+from models.malware import MalwareEvent
 from models.network import NetworkEvent
 from models.process import ProcessEvent
 from models.services import ServiceEvent
@@ -193,5 +194,28 @@ class MacCollector(BaseOSCollector):
             # Silent fail for enrichment
             print(f"The exception was: {e}")
             pass
+
+        return unified_events
+
+    def collect_malware_events(self) -> list[UnifiedEvent]:
+        """
+        Scans macOS processes for behavioral threats.
+        """
+        unified_events = []
+
+        detected_threats = MalwareEvent.scan_system_for_threats()
+
+        for threat in detected_threats:
+            unified_events.append(
+                UnifiedEvent(
+                    type='malware_alert',
+                    details=threat.model_dump(mode='json'),
+                    metadata={
+                        'os': 'macos',
+                        'collector': 'behavioral_scanner',
+                        'arch': 'arm64',  # Or use platform.machine() to detect M1 vs Intel
+                    },
+                ),
+            )
 
         return unified_events

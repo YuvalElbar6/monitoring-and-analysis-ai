@@ -11,6 +11,7 @@ from scapy.layers.inet6 import IPv6
 
 from collectors.base import BaseOSCollector
 from models.hardware import HardwareEvent
+from models.malware import MalwareEvent
 from models.network import NetworkEvent
 from models.process import ProcessEvent
 from models.services import ServiceEvent
@@ -177,6 +178,29 @@ class LinuxCollector(BaseOSCollector):
                     # mode='json' converts datetime objects and sub-models to plain dicts
                     details=spike.model_dump(mode='json'),
                     metadata={'os': 'linux', 'collector': 'hardware_pydantic'},
+                ),
+            )
+
+        return unified_events
+
+    def collect_malware_events(self) -> list[UnifiedEvent]:
+        """
+        Scans Linux processes for behavioral threats.
+        """
+        unified_events = []
+
+        detected_threats = MalwareEvent.scan_system_for_threats()
+
+        for threat in detected_threats:
+            unified_events.append(
+                UnifiedEvent(
+                    type='malware_alert',
+                    details=threat.model_dump(mode='json'),
+                    metadata={
+                        'os': 'linux',
+                        'collector': 'behavioral_scanner',
+                        'kernel': 'generic_linux',  # You could add `os.uname().release` here if you wanted
+                    },
                 ),
             )
 
