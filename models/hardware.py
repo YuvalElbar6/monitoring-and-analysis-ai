@@ -66,15 +66,16 @@ class HardwareEvent(BaseModel):
         """
         events = []
 
+        # Ensure we are requesting the fields we need
         for proc in psutil.process_iter(['pid', 'name', 'username', 'cpu_percent', 'memory_percent', 'exe']):
             try:
-                # Get metrics
-                cpu = proc.info['cpu_percent'] or 0.0
-                mem = proc.info['memory_percent'] or 0.0
+                # Use .info.get() to avoid KeyError 'exe'
+                info = proc.info
+                cpu = info.get('cpu_percent') or 0.0
+                mem = info.get('memory_percent') or 0.0
 
                 if cpu > cpu_threshold or mem > mem_threshold:
-                    # Check for GPU usage if it's a heavy process
-                    gpu_data = cls.get_gpu_usage(proc.info['pid'])
+                    gpu_data = cls.get_gpu_usage(info.get('pid'))
 
                     metrics = HardwareMetrics(
                         cpu_percent=cpu,
@@ -82,18 +83,23 @@ class HardwareEvent(BaseModel):
                         **gpu_data,
                     )
 
+                    # Use .get() for 'exe' and 'username' to handle cases
+                    # where psutil couldn't retrieve them
                     events.append(
                         cls(
                             sub_type='RESOURCE_HOG',
-                            pid=proc.info['pid'],
-                            name=proc.info['name'],
-                            username=proc.info['username'],
-                            exe=proc.info['exe'],
+                            pid=info.get('pid'),
+                            name=info.get('name') or 'unknown',
+                            username=info.get('username') or 'system',
+                            exe=info.get('exe'),  # Pydantic model allows None
                             metrics=metrics,
                             metadata={'collector': 'psutil_hardware'},
                         ),
                     )
             except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+            except Exception as e:
+                print(f"[Hardware Model] Error processing PID {proc.pid}: {e}")
                 continue
 
         return events

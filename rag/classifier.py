@@ -48,7 +48,8 @@ Available MCP tools:
 5) analyze_network (Args: {{}})
 6) analyze_services (Args: {{}})
 7) analyze_all (Args: {{}})
-8) none (Args: {{}})
+8) analyze_hardware_spikes (Args: {{"limit": <int 1 - 20>}})
+9) none (Args: {{}})
 
 OUTPUT RULES:
 1. Return ONLY the raw JSON object.
