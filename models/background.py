@@ -37,7 +37,8 @@ async def process_monitor_loop():
                 for ev in events:
                     # Uses the non-blocking queue writer
                     write_event(ev)
-
+            # Snapshot every 10 seconds
+            await asyncio.sleep(10)
         except Exception:
             print('[Background] Process monitor failed:')
             traceback.print_exc()
@@ -46,8 +47,6 @@ async def process_monitor_loop():
             # SILENT EXIT: Server is shutting down
             print('[Background] Process monitor stopping...')
             return
-        # Snapshot every 10 seconds
-        await asyncio.sleep(10)
 
 
 # -----------------------------------------------------
@@ -64,6 +63,9 @@ async def service_monitor_loop():
                 for ev in events:
                     write_event(ev)
 
+            # Check services every 30 seconds
+            await asyncio.sleep(30)
+
         except Exception:
             print('[Background] Service monitor failed:')
             traceback.print_exc()
@@ -71,9 +73,6 @@ async def service_monitor_loop():
         except asyncio.CancelledError:
             print('[Background] Service monitor stopping...')
             return
-
-        # Check services every 30 seconds
-        await asyncio.sleep(30)
 
 
 # -----------------------------------------------------
