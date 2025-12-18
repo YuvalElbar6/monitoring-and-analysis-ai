@@ -112,14 +112,6 @@ async def rag_query(query: str = ''):
 # TOOLS (ACTIONS)
 # ------------------------------------------------------
 
-@app.tool()
-def get_testing_ping():
-    """
-    A simple connectivity test tool.
-    Returns 'pong' if the server is reachable and responsive.
-    """
-    return 'pong'
-
 
 @app.tool()
 async def get_running_processes():
@@ -132,18 +124,6 @@ async def get_running_processes():
     """
     events = _db_worker.get_recent_events('process')
     return {'processes': events}
-
-
-@app.tool()
-async def get_running_services():
-    """
-    Tool to fetch recent service status changes or logs.
-
-    Returns:
-        dict: A dictionary containing a list of service event objects.
-    """
-    events = _db_worker.get_recent_events('service_event')
-    return {'services': events}
 
 
 @app.tool()
