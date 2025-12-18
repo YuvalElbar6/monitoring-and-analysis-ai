@@ -1,55 +1,50 @@
 from __future__ import annotations
 
-from typing import Any
-
 import httpx
 
 from helper.json_helper import extract_json
 from os_env import BASE_OLLAMA_URL
+from rag.model import RAGResponse
 from rag.retriever import retrieve
 
 
-class RAGResponse:
-    def __init__(self, answer: str, citations: list[str]):
-        self.answer = answer
-        self.citations = citations
-
-    def dict(self) -> dict[str, Any]:
-        return {
-            'answer': self.answer,
-            'citations': self.citations,
-        }
-
-
-# ---------------------------------------------------------
-# LLM CALL (Ollama)
-# ---------------------------------------------------------
-
 async def call_ollama(prompt: str, model: str = 'gemma3:4b') -> str:
+    """
+    Robustly sends a prompt to Ollama.
+    Includes timeouts, error handling, and flexible response parsing.
+    """
     url = f"{BASE_OLLAMA_URL}/api/chat"
 
     payload = {
         'model': model,
-        'messages': [
-            {'role': 'user', 'content': prompt},
-        ],
+        'messages': [{'role': 'user', 'content': prompt}],
         'stream': False,
     }
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json=payload)
-        resp.raise_for_status()
+        try:
+            # 1. increased timeout for complex reasoning
+            resp = await client.post(url, json=payload, timeout=60.0)
+            resp.raise_for_status()
 
-        data = resp.json()
+            data = resp.json()
 
-        # Ollama sometimes returns message or messages list
-        if 'message' in data:
-            return data['message']['content']
+            # 2. Flexible Parsing (Handles potential API variations)
+            if 'message' in data:
+                return data['message']['content']
 
-        if 'messages' in data:
-            return data['messages'][-1]['content']
+            if 'messages' in data:
+                return data['messages'][-1]['content']
 
-        raise RuntimeError('Unexpected Ollama response format')
+            return str(data)  # Fallback if structure is weird
+
+        except httpx.HTTPStatusError as e:
+            print(f"[Ollama HTTP Error] {e.response.status_code}: {e.response.text}")
+            return "Error: I couldn't reach my AI brain."
+
+        except Exception as e:
+            print(f"[Ollama Connection Error] {e}")
+            return 'Error: Connection to AI failed.'
 
 
 # ---------------------------------------------------------
