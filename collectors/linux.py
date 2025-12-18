@@ -10,6 +10,7 @@ from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
 
 from collectors.base import BaseOSCollector
+from models.hardware import HardwareEvent
 from models.network import NetworkEvent
 from models.process import ProcessEvent
 from models.services import ServiceEvent
@@ -147,3 +148,36 @@ class LinuxCollector(BaseOSCollector):
 
             except Exception as e:
                 print(f"[Network] Parse Error: {e}")
+
+    def collect_hardware_events(self, cpu_threshold: float = 40.0, mem_threshold: float = 40.0) -> list[UnifiedEvent]:
+        """
+        Scans for hardware resource anomalies on Linux.
+
+        Args:
+            cpu_threshold (float): CPU percentage triggering an event.
+            mem_threshold (float): Memory percentage triggering an event.
+
+        Returns:
+            list[UnifiedEvent]: A list of detected resource spikes.
+        """
+        unified_events = []
+
+        # 1. Use the model's logic to detect spikes
+        # This handles the psutil iteration and GPU cross-referencing
+        spikes = HardwareEvent.detect_spikes(
+            cpu_threshold=cpu_threshold,
+            mem_threshold=mem_threshold,
+        )
+
+        # 2. Wrap each HardwareEvent into a UnifiedEvent for the SOC
+        for spike in spikes:
+            unified_events.append(
+                UnifiedEvent(
+                    type='hardware_spike',
+                    # mode='json' converts datetime objects and sub-models to plain dicts
+                    details=spike.model_dump(mode='json'),
+                    metadata={'os': 'linux', 'collector': 'hardware_pydantic'},
+                ),
+            )
+
+        return unified_events

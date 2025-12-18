@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 
+from analysis import analyze_hardware
 from analysis import analyze_network_flow
 from analysis import analyze_process
 from analysis import analyze_service_event
@@ -28,6 +29,7 @@ async def lifespan(app):
     2. Ensures they are cancelled and cleaned up gracefully on shutdown.
     3. stops the Database Worker thread safely.
     """
+
     print('🚀 Starting background collectors...')
     tasks = await start_background_monitors()
     print('🚀 Background collectors started.')
@@ -281,6 +283,29 @@ async def analyze_services(args=None):
 
 
 @app.tool()
+async def analyze_hardware_spikes(limit: int = 15, **kwargs):
+    """
+    Analyzes recent hardware resource spikes (CPU, RAM, GPU).
+    Identifies 'heavy' processes and calculates risk scores based on resource abuse.
+
+    Args:
+        limit (int): Number of spikes to analyze.
+    """
+    events = _db_worker.get_recent_events('hardware_spike', limit=limit)
+    if not events:
+        return {'analysis': [], 'total_spikes': 0, 'status': 'Normal'}
+
+    processed = [analyze_hardware(e) for e in events]
+    # Sort by the risk score calculated in analysis.py
+    processed.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
+
+    return {
+        'analysis': processed,
+        'total_spikes': len(events),
+    }
+
+
+@app.tool()
 async def analyze_all(args=None):
     """
     Master Analysis Tool.
@@ -294,27 +319,26 @@ async def analyze_all(args=None):
     Returns:
         dict: A comprehensive security report.
     """
-    # 1. Fetch Data from DB
+
     pevents = _db_worker.get_recent_events('process')
     nevents = _db_worker.get_recent_events('network_flow')
     sevents = _db_worker.get_recent_events('service_event')
+    hevents = _db_worker.get_recent_events('hardware_spike')
 
-    # 2. Analyze Processes
+    # 2. Analyze everything using our analysis engine
     process_results = [analyze_process(e) for e in pevents]
-    process_results.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
-
-    # 3. Analyze Network
     network_results = [analyze_network_flow(e) for e in nevents]
-    network_results.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
-
-    # 4. Analyze Services
     service_results = [analyze_service_event(e) for e in sevents]
-    service_results.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
+    hardware_results = [analyze_hardware(e) for e in hevents]
 
+    # 3. Sort by risk
+    for res_list in [process_results, network_results, service_results, hardware_results]:
+        res_list.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
     return {
         'process_analysis': process_results,
         'network_analysis': network_results,
         'service_analysis': service_results,
+        'hardware_analysis': hardware_results,
     }
 
 

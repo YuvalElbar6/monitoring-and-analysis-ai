@@ -7,6 +7,7 @@ from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
 
 from collectors.base import BaseOSCollector
+from models.hardware import HardwareEvent
 from models.network import NetworkEvent
 from models.process import ProcessEvent
 from models.services import ServiceEvent
@@ -148,3 +149,28 @@ class WindowsCollector(BaseOSCollector):
 
             except Exception as e:
                 print(f"[Network] Parse Error: {e}")
+
+    def collect_hardware_events(self, cpu_threshold: float = 40.0, mem_threshold: float = 40.0) -> list[UnifiedEvent]:
+        """
+        Scans for hardware anomalies using the HardwareEvent model logic.
+        """
+        unified_events = []
+
+        # Use the model's built-in detection logic
+        # This returns a list[HardwareEvent]
+        detected_spikes = HardwareEvent.detect_spikes(
+            cpu_threshold=cpu_threshold,
+            mem_threshold=mem_threshold,
+        )
+
+        for spike in detected_spikes:
+            # We convert the Pydantic model to a JSON-safe dict for the DB
+            unified_events.append(
+                UnifiedEvent(
+                    type='hardware_spike',
+                    details=spike.model_dump(mode='json'),
+                    metadata={'os': 'windows', 'collector': 'hardware_pydantic'},
+                ),
+            )
+
+        return unified_events

@@ -1,49 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
-
 from models.unified import UnifiedEvent
 from rag.document_builder import event_to_document
 from rag.vector_store import vector_store
-
-
-def ingest_event(event: UnifiedEvent | dict[str, Any]) -> bool:
-    """
-    Ingest a single UnifiedEvent into the vector store.
-
-    Args:
-        event (UnifiedEvent | dict): The event data to store.
-                                     Accepts raw dicts to support JSON-serialized inputs.
-
-    Returns:
-        bool: True if added successfully, False if skipped (e.g. missing data).
-    """
-    try:
-        # Compatibility: Convert dict back to UnifiedEvent if needed
-        # This ensures downstream functions always get the object they expect.
-        if isinstance(event, dict):
-            try:
-                event = UnifiedEvent(**event)
-            except Exception:
-                # If validation fails, we can't process it safely
-                return False
-
-        doc = event_to_document(event)
-
-        # Validation: Skip if missing critical fields
-        if not doc.get('text') or not doc.get('id'):
-            return False
-
-        vector_store.add_texts(
-            texts=[doc['text']],
-            metadatas=[doc['metadata']],
-            ids=[doc['id']],
-        )
-        return True
-
-    except Exception as e:
-        print(f"[RAG INGEST ERROR] Failed to ingest event: {e}")
-        return False
 
 
 def ingest_events(events: list[UnifiedEvent]) -> dict[str, int]:

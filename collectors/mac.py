@@ -1,6 +1,7 @@
 # collectors/mac.py
 from __future__ import annotations
 
+import json
 import subprocess
 
 import psutil
@@ -9,6 +10,7 @@ from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
 
 from collectors.base import BaseOSCollector
+from models.hardware import HardwareEvent
 from models.network import NetworkEvent
 from models.process import ProcessEvent
 from models.services import ServiceEvent
@@ -144,3 +146,52 @@ class MacCollector(BaseOSCollector):
 
             except Exception as e:
                 print(f"[Network] Parse Error: {e}")
+
+    def collect_hardware_events(self, cpu_threshold: float = 40.0, mem_threshold: float = 40.0) -> list[UnifiedEvent]:
+        """
+        Scans for hardware resource anomalies on macOS using HardwareEvent model.
+        Also enriches with GPU hardware status via system_profiler.
+        """
+        unified_events = []
+
+        # 1. Use Pydantic Model to detect CPU/RAM spikes
+        # This will also try get_gpu_usage (nvidia-smi), which will be skipped on M-series Macs
+        spikes = HardwareEvent.detect_spikes(
+            cpu_threshold=cpu_threshold,
+            mem_threshold=mem_threshold,
+        )
+
+        for spike in spikes:
+            unified_events.append(
+                UnifiedEvent(
+                    type='hardware_spike',
+                    details=spike.model_dump(mode='json'),
+                    metadata={'os': 'macos', 'collector': 'hardware_pydantic'},
+                ),
+            )
+
+        # 2. Enrich with macOS GPU Static Info (Hardware Health)
+        try:
+            res = subprocess.check_output(['system_profiler', 'SPDisplaysDataType', '-json'], encoding='utf-8')
+            data = json.loads(res)
+
+            if 'SPDisplaysDataType' in data:
+                for gpu in data['SPDisplaysDataType']:
+                    unified_events.append(
+                        UnifiedEvent(
+                            type='hardware_info',
+                            details={
+                                'sub_type': 'GPU_STATUS',
+                                'gpu_name': gpu.get('_name', 'Unknown GPU'),
+                                'vram': gpu.get('spdisplays_vram', 'Unified'),
+                                'vendor': gpu.get('spdisplays_vendor', 'Apple'),
+                            },
+                            metadata={'os': 'macos', 'collector': 'system_profiler'},
+                        ),
+                    )
+        except Exception as e:
+            # Silent fail for enrichment
+            print(f"The exception was: {e}")
+            pass
+
+        return unified_events

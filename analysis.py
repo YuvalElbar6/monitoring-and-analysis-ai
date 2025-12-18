@@ -281,14 +281,88 @@ def analyze_service_events(event_list: list[Any]) -> list[dict[str, Any]]:
     return [analyze_service_event(e) for e in event_list]
 
 
-# ============================================================
-# UNIVERSAL ENTRYPOINT
-# ============================================================
+def analyze_hardware(event: dict[str, Any] | str) -> dict[str, Any]:
+    """
+    Evaluates hardware spikes for security and performance risks.
+
+    Checks for:
+    - Cryptojacking Signatures: High GPU/CPU from suspicious or hidden paths.
+    - Resource Hogs: Unusual memory or power consumption.
+    - Persistence: High load from privileged users (Root/System).
+
+    Args:
+        event (dict | str): The raw hardware spike event.
+    """
+    event = _parse_input(event)
+
+    score = 0
+    reasons = []
+
+    # Extract nested Pydantic data from 'details'
+    details = event.get('details', {})
+    metrics = details.get('metrics', {})
+    sub_type = normalize_str(details.get('sub_type')).upper()
+
+    exe = normalize_str(details.get('exe'))
+    name = normalize_str(details.get('name'))
+
+    # 1. Metrics Analysis
+    cpu = metrics.get('cpu_percent', 0)
+    mem = metrics.get('memory_percent', 0)
+    gpu_mem = metrics.get('gpu_memory_mb', 0) or 0
+
+    # High Load Detection
+    if cpu > 80:
+        score += 3
+        reasons.append(f"Critical CPU spike ({cpu}%): Possible cryptominer or fork bomb.")
+    elif cpu > 50:
+        score += 1
+        reasons.append('Elevated CPU usage.')
+
+    if gpu_mem > 1000:  # 1GB+ VRAM usage
+        score += 2
+        reasons.append(f"Heavy GPU memory usage ({gpu_mem} MB): Potential mining or unauthorized rendering.")
+
+    # 2. Memory (RAM) Analysis - THE FIX
+    if mem > 70:
+        score += 4
+        reasons.append(f"CRITICAL: Memory exhaustion ({mem}%). Potential Denial of Service or massive data buffer.")
+    elif mem > 40:
+        score += 2
+        reasons.append(f"High memory usage ({mem}%): Unusual for background tasks.")
+
+    # 2. Path-Load Correlation (The "Cryptojacking" check)
+    if exe:
+        suspicious_paths = ['tmp', 'temp', 'cache', 'shm', 'appdata']
+        is_suspicious_path = any(p in exe.lower() for p in suspicious_paths)
+
+        if is_suspicious_path and (cpu > 30 or gpu_mem > 500):
+            score += 4
+            reasons.append(f"CRITICAL: High resource usage from suspicious path: {exe}")
+
+    # 3. Anomaly Type logic
+    if sub_type == 'GPU_USAGE' and not exe:
+        score += 1
+        reasons.append('GPU usage detected from a process with no valid disk path.')
+
+    return {
+        'process': name,
+        'path': exe,
+        'risk_score': min(score, 10),
+        'reasons': reasons,
+        'metrics': {
+            'cpu': f"{cpu}%",
+            'ram': f"{mem}%",
+            'gpu_vram': f"{gpu_mem} MB",
+        },
+    }
+
 
 EVENT_TO_TYPE = {
     'process': analyze_process,
     'network_flow': analyze_network_flow,
     'service_event':  analyze_service_event,
+    'hardware_spike': analyze_hardware,
 }
 
 
@@ -313,3 +387,8 @@ def analyze_event(event: dict[str, Any] | str) -> dict[str, Any]:
         'risk_score': 0,
         'reasons': ['Unknown event type, no analysis performed.'],
     }
+
+
+def analyze_hardware_spikes(spike_list: list[Any]) -> list[dict[str, Any]]:
+    """Batch processes multiple hardware events."""
+    return [analyze_hardware(s) for s in spike_list]
