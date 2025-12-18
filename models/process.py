@@ -1,12 +1,17 @@
-# models/process.py
 from __future__ import annotations
+
+from datetime import datetime
+from datetime import timezone
+from typing import Any
 
 import psutil
 from pydantic import BaseModel
+from pydantic import Field
 from pydantic import IPvAnyAddress
 
 
 class ProcessConnection(BaseModel):
+    # IPvAnyAddress validates that the string is actually an IP
     local_address: IPvAnyAddress | None = None
     local_port: int | None = None
     remote_address: IPvAnyAddress | None = None
@@ -17,52 +22,75 @@ class ProcessConnection(BaseModel):
 class ProcessEvent(BaseModel):
     pid: int
     name: str
-    cpu_percent: float
-    memory_percent: float
-    exe: str | None = None
-    cmdline: list[str] = []
     username: str | None = None
-    connections: list[ProcessConnection] = []
+    cpu_percent: float = 0.0
+    memory_percent: float = 0.0
+    exe: str | None = None
+    cmdline: list[str] = Field(default_factory=list)
+    connections: list[ProcessConnection] = Field(default_factory=list)
+
+    # CRITICAL: Required by your collector to sync event times
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @classmethod
     def from_psutil(cls, proc) -> ProcessEvent | None:
-        try:
-            # Use strict contexts to avoid overhead
-            with proc.oneshot():
-                pinfo = proc.as_dict(
-                    attrs=[
-                        'pid', 'name', 'username', 'cpu_percent',
-                        'memory_percent', 'exe', 'cmdline',
-                    ],
-                )
+        """
+        Creates a ProcessEvent from a raw psutil process object.
+        Returns None if the process is inaccessible (AccessDenied/Zombie).
+        """
+        # Helper for clean attribute access
+        def safe_get(method_name: str, default: Any = None):
+            try:
+                return getattr(proc, method_name)()
+            except (psutil.AccessDenied, psutil.ZombieProcess):
+                return default
 
-                # FIX: Use net_connections() instead of connections()
-                # kind='inet' filters for IPv4/IPv6 connections only
+        try:
+            with proc.oneshot():
+                # 1. Fetch Basic Info
+                name = safe_get('name', 'unknown')
+                username = safe_get('username', 'unknown')
+                exe = safe_get('exe', None)
+                cmdline = safe_get('cmdline', [])
+
+                # 2. Fetch Metrics (handling specific psutil errors)
                 try:
-                    conns = proc.net_connections(kind='inet')
-                    conn_list = []
-                    for c in conns:
-                        conn_list.append({
-                            'fd': c.fd,
-                            'family': str(c.family),
-                            'type': str(c.type),
-                            'local_address': f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else None,
-                            'remote_address': f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else None,
-                            'status': c.status,
-                        })
-                except (PermissionError, psutil.AccessDenied):
-                    conn_list = []
+                    cpu = proc.cpu_percent(interval=None)
+                    mem = proc.memory_percent()
+                except (psutil.AccessDenied, psutil.ZombieProcess):
+                    cpu, mem = 0.0, 0.0
+
+                # 3. Fetch & Parse Connections
+                # We do this manually to split IP/Port for your new ProcessConnection model
+                conn_list = []
+                try:
+                    for c in proc.net_connections(kind='inet'):
+                        l_ip, l_port = (c.laddr.ip, c.laddr.port) if c.laddr else (None, None)
+                        r_ip, r_port = (c.raddr.ip, c.raddr.port) if c.raddr else (None, None)
+
+                        conn_list.append(
+                            ProcessConnection(
+                                local_address=l_ip,
+                                local_port=l_port,
+                                remote_address=r_ip,
+                                remote_port=r_port,
+                                status=c.status,
+                            ),
+                        )
+                except (psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
 
                 return cls(
-                    pid=pinfo['pid'],
-                    name=pinfo['name'] or 'unknown',
-                    username=pinfo['username'] or 'unknown',
-                    cpu_percent=pinfo['cpu_percent'] or 0.0,
-                    memory_percent=pinfo['memory_percent'] or 0.0,
-                    exe=pinfo['exe'],
-                    cmdline=pinfo['cmdline'] or [],
+                    pid=proc.pid,
+                    name=name,
+                    username=username,
+                    exe=exe,
+                    cmdline=cmdline,
+                    cpu_percent=cpu,
+                    memory_percent=mem,
                     connections=conn_list,
                 )
+
         except Exception:
-            # Process might have died while reading
+            # If the process vanishes during reading, strictly return None
             return None

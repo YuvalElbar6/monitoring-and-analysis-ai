@@ -22,7 +22,6 @@ async def describe_process_with_rag(process_name: str, exe: str, username: str) 
     except Exception:
         context = ''
 
-    # 2. Stronger Prompt with JSON Instruction
     prompt = f"""
 You are a security analyst.
 
@@ -37,9 +36,14 @@ Requirements:
 - State if the context shows valid or suspicious behavior.
 - If context is empty, give a generic definition of the process name.
 
-IMPORTANT: You must return a JSON object in this format:
+OUTPUT FORMAT:
+Return ONLY a raw JSON object.
+Do NOT use Markdown formatting (no ```json blocks).
+Do NOT add conversational text (no "Here is the response").
+
+Example Output:
 {{
-    "description": "Your summary text here"
+    "description": "Notepad.exe is a built-in Windows text editor. It is generally benign."
 }}
 """
 
