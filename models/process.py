@@ -25,30 +25,44 @@ class ProcessEvent(BaseModel):
     connections: list[ProcessConnection] = []
 
     @classmethod
-    def from_psutil(cls, proc: psutil.Process):
+    def from_psutil(cls, proc) -> ProcessEvent | None:
         try:
-            conns = []
-            for c in proc.connections(kind='inet'):
-                conns.append(
-                    ProcessConnection(
-                        local_address=c.laddr.ip if c.laddr else None,
-                        local_port=c.laddr.port if c.laddr else None,
-                        remote_address=c.raddr.ip if c.raddr else None,
-                        remote_port=c.raddr.port if c.raddr else None,
-                        status=c.status,
-                    ),
+            # Use strict contexts to avoid overhead
+            with proc.oneshot():
+                pinfo = proc.as_dict(
+                    attrs=[
+                        'pid', 'name', 'username', 'cpu_percent',
+                        'memory_percent', 'exe', 'cmdline',
+                    ],
                 )
 
-            return cls(
-                pid=proc.pid,
-                name=proc.name(),
-                cpu_percent=proc.cpu_percent(interval=None),
-                memory_percent=proc.memory_percent(),
-                exe=proc.exe() if hasattr(proc, 'exe') else None,
-                cmdline=proc.cmdline(),
-                username=proc.username(),
-                connections=conns,
-            )
+                # FIX: Use net_connections() instead of connections()
+                # kind='inet' filters for IPv4/IPv6 connections only
+                try:
+                    conns = proc.net_connections(kind='inet')
+                    conn_list = []
+                    for c in conns:
+                        conn_list.append({
+                            'fd': c.fd,
+                            'family': str(c.family),
+                            'type': str(c.type),
+                            'local_address': f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else None,
+                            'remote_address': f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else None,
+                            'status': c.status,
+                        })
+                except (PermissionError, psutil.AccessDenied):
+                    conn_list = []
 
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                return cls(
+                    pid=pinfo['pid'],
+                    name=pinfo['name'] or 'unknown',
+                    username=pinfo['username'] or 'unknown',
+                    cpu_percent=pinfo['cpu_percent'] or 0.0,
+                    memory_percent=pinfo['memory_percent'] or 0.0,
+                    exe=pinfo['exe'],
+                    cmdline=pinfo['cmdline'] or [],
+                    connections=conn_list,
+                )
+        except Exception:
+            # Process might have died while reading
             return None

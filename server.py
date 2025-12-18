@@ -10,38 +10,39 @@ from fastmcp import FastMCP
 from analysis import analyze_network_flow
 from analysis import analyze_process
 from analysis import analyze_service_event
-from collectors.factory import get_collector
 from models.background import start_background_monitors
 from os_env import SERVER_HOST
 from os_env import SERVER_PORT
 from rag.describer import describe_process_with_rag
 from rag.engine import answer_with_rag
+from storage.storage_writer import _db_worker
 from vt_check import scan_file_rag_intel
-
-
-collector = get_collector()
 
 
 @asynccontextmanager
 async def lifespan(app):
+    """
+    Manages the lifecycle of the application.
+
+    1. Starts the background collectors (Process, Network, Services) on startup.
+    2. Ensures they are cancelled and cleaned up gracefully on shutdown.
+    3. stops the Database Worker thread safely.
+    """
     print('🚀 Starting background collectors...')
     tasks = await start_background_monitors()
-
     print('🚀 Background collectors started.')
 
     try:
-        yield  # FastMCP runs normally here
+        yield
     finally:
         print('🛑 Shutting down background collectors...')
-
-        # cancel all tasks
         for t in tasks:
             t.cancel()
-
-        # wait until all tasks die
         await asyncio.gather(*tasks, return_exceptions=True)
-
         print('✅ Background collectors stopped cleanly.')
+
+        # Stop the DB worker gracefully
+        _db_worker.stop()
 
 
 app = FastMCP(
@@ -53,34 +54,51 @@ app = FastMCP(
 
 
 # ------------------------------------------------------
-# RESOURCES (CORRECT, NO TEMPLATE ERRORS)
+# RESOURCES
 # ------------------------------------------------------
 
 @app.resource('data://config')
 def get_config():
+    """
+    Health check resource.
+    Returns the current service status and name.
+    """
     return {'service': 'PCSystemMonitor', 'status': 'running'}
 
 
 @app.resource('data://system/processes')
 def get_processes():
-    events = collector.collect_process_events()
-    return [e.model_dump() for e in events]
+    """
+    Resource that returns the raw list of the most recent processes from the database.
+    """
+    return _db_worker.get_recent_events('process')
 
 
 @app.resource('data://system/network_flows')
 def get_flows():
-    events = collector.collect_network_events()
-    return [e.model_dump() for e in events]
+    """
+    Resource that returns the raw list of recent network traffic flows from the database.
+    """
+    return _db_worker.get_recent_events('network_flow')
 
 
-@app.resource('data://system/service_events/{limit}}')
-def get_service_events(limit=50):
-    events = collector.collect_service_events(limit=limit)
-    return [e.model_dump() for e in events]
+@app.resource('data://system/service_events/{limit}')
+def get_service_events(limit: int = 50):
+    """
+    Resource that returns recent system service logs (Windows Events / Systemd logs).
+
+    Args:
+        limit (int): The maximum number of log entries to retrieve. Default is 50.
+    """
+    return _db_worker.get_recent_events('service_event', limit=limit)
 
 
 @app.resource('data://system/rag/{query}')
 async def rag_query(query: str = ''):
+    """
+    Resource for direct RAG (Retrieval-Augmented Generation) queries.
+    Allows fetching AI-synthesized answers about system state via URL path.
+    """
     if not query:
         return {'error': 'Missing query'}
     rag = await answer_with_rag(query)
@@ -93,60 +111,124 @@ async def rag_query(query: str = ''):
 
 @app.tool()
 def get_testing_ping():
+    """
+    A simple connectivity test tool.
+    Returns 'pong' if the server is reachable and responsive.
+    """
     return 'pong'
 
 
 @app.tool()
 async def get_running_processes():
-    events = collector.collect_process_events()
-    return {'processes': [e.model_dump() for e in events]}
+    """
+    Tool to fetch a snapshot of currently running processes.
+    Useful for listing active applications without performing deep analysis.
+
+    Returns:
+        dict: A dictionary containing a list of process objects.
+    """
+    events = _db_worker.get_recent_events('process')
+    return {'processes': events}
 
 
 @app.tool()
 async def get_running_services():
-    events = collector.collect_service_events()
-    return {'services': [e.model_dump() for e in events]}
+    """
+    Tool to fetch recent service status changes or logs.
+
+    Returns:
+        dict: A dictionary containing a list of service event objects.
+    """
+    events = _db_worker.get_recent_events('service_event')
+    return {'services': events}
 
 
 @app.tool()
-async def get_network_flows(limit=5):
-    events = collector.collect_network_events(limit=limit)
-    return {'flows': [e.model_dump() for e in events]}
+async def get_network_flows(limit: int = 10):
+    """
+    Tool to fetch the most recent network packets/flows.
+
+    Args:
+        limit (int): Number of flows to return (default: 10).
+
+    Returns:
+        dict: A dictionary containing a list of network flow objects.
+    """
+    flows = _db_worker.get_recent_events('network_flow', limit=limit)
+
+    processed = [analyze_network_flow(f) for f in flows]
+
+    processed.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
+
+    return {
+        'analysis': processed[: limit],
+        'total_flows': len(processed),
+    }
 
 
 @app.tool()
 async def search_findings(query: str):
+    """
+    Semantic Search Tool.
+    Uses RAG to find relevant system events based on natural language queries.
+
+    Example:
+        "Show me all connections to IP 8.8.8.8"
+        "Find processes that started after midnight"
+
+    Args:
+        query (str): The natural language question or search term.
+    """
     rag = await answer_with_rag(query)
     return rag.dict()
 
 
 @app.tool()
 async def threat_lookup(args):
+    """
+    Threat Intelligence Tool.
+    Scans a specific file hash or entity against VirusTotal and internal RAG data.
+
+    Args:
+        args (dict): Must contain key 'entity' (the file hash, IP, or filename).
+    """
     entity = args.get('entity')
     result = await scan_file_rag_intel(entity)
     return result.__dict__
 
 
+# ------------------------------------------------------
+# ANALYSIS TOOLS (AI Enhanced)
+# ------------------------------------------------------
+
 @app.tool()
 async def analyze_processes(args=None):
-    events = collector.collect_process_events()
+    """
+    Analyzes recent processes for security risks.
+
+    1. Fetches recent process data from the database.
+    2. Applies heuristic risk scoring (e.g., high CPU, weird names).
+    3. Enriches data with AI descriptions of what the process actually does.
+
+    Returns:
+        dict: Sorted list of processes by risk score.
+    """
+    events = _db_worker.get_recent_events('process')
     results = []
 
-    for e in events:
-        raw = e.model_dump()
-        base = analyze_process(raw)  # existing scoring logic
+    for raw_event in events:
+        base = analyze_process(raw_event)
 
         # Add RAG description
         desc = await describe_process_with_rag(
-            base['name'],
-            base['exe'],
-            base['username'],
+            base.get('name', 'unknown'),
+            base.get('exe', ''),
+            base.get('username', ''),
         )
-
         base['rag_description'] = desc
         results.append(base)
 
-    results.sort(key=lambda x: x['risk_score'], reverse=True)
+    results.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
 
     return {
         'analysis': results,
@@ -157,16 +239,21 @@ async def analyze_processes(args=None):
 @app.tool()
 async def analyze_network(args=None):
     """
-    Analyze recent captured network traffic.
-    """
-    flows = collector.collect_network_events(limit=50)
-    processed = [analyze_network_flow(f.model_dump()) for f in flows]
+    Analyzes recent network traffic for anomalies.
 
-    processed.sort(key=lambda x: x['risk_score'], reverse=True)
-    top_results = processed[:10]
+    1. Fetches recent flows from the database.
+    2. detailed risk scoring (e.g., non-standard ports, external IPs).
+
+    Returns:
+        dict: Top 10 riskiest network flows found.
+    """
+    flows = _db_worker.get_recent_events('network_flow')
+
+    processed = [analyze_network_flow(f) for f in flows]
+    processed.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
 
     return {
-        'analysis': top_results,
+        'analysis': processed,
         'total_flows': len(processed),
     }
 
@@ -174,21 +261,20 @@ async def analyze_network(args=None):
 @app.tool()
 async def analyze_services(args=None):
     """
-    Analyze recent Windows service logs.
-    If running on Linux/Mac, returns empty list.
+    Analyzes recent service logs for errors or security events.
+
+    Returns:
+        dict: Top 10 riskiest service events (errors, failures, etc.).
     """
-    try:
-        events = collector.collect_service_events(limit=50)
-    except Exception:
-        return {'analysis': [], 'total_events': 0, 'note': 'Service logs not supported on this OS'}
+    events = _db_worker.get_recent_events('service_event')
+    if not events:
+        return {'analysis': [], 'total_events': 0, 'note': 'No service logs found'}
 
-    processed = [analyze_service_event(e.model_dump()) for e in events]
-
-    processed.sort(key=lambda x: x['risk_score'], reverse=True)
-    top_results = processed[:10]
+    processed = [analyze_service_event(e) for e in events]
+    processed.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
 
     return {
-        'analysis': top_results,
+        'analysis': processed,
         'total_events': len(processed),
     }
 
@@ -196,53 +282,46 @@ async def analyze_services(args=None):
 @app.tool()
 async def analyze_all(args=None):
     """
-    Master system analysis combining:
-    - processes
-    - network flows
-    - service logs (if available)
+    Master Analysis Tool.
+    Performs a full security sweep of the system.
+
+    Combines analysis from:
+    - Processes (Top 10 risks)
+    - Network Traffic (Top 10 risks)
+    - Service Logs (Top 10 risks)
+
+    Returns:
+        dict: A comprehensive security report.
     """
+    # 1. Fetch Data from DB
+    pevents = _db_worker.get_recent_events('process')
+    nevents = _db_worker.get_recent_events('network_flow')
+    sevents = _db_worker.get_recent_events('service_event')
 
-    # ---- Processes ----
-    pevents = collector.collect_process_events()
-    process_results = [
-        analyze_process(e.model_dump()) for e in pevents
-    ]
-    process_results.sort(key=lambda x: x['risk_score'], reverse=True)
-    process_top = process_results[:10]
+    # 2. Analyze Processes
+    process_results = [analyze_process(e) for e in pevents]
+    process_results.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
 
-    # ---- Network ----
-    nevents = collector.collect_network_events(limit=50)
-    network_results = [
-        analyze_network_flow(e.model_dump()) for e in nevents
-    ]
-    network_results.sort(key=lambda x: x['risk_score'], reverse=True)
-    network_top = network_results[:10]
+    # 3. Analyze Network
+    network_results = [analyze_network_flow(e) for e in nevents]
+    network_results.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
 
-    # ---- Services (optional, Windows only) ----
-    try:
-        sevents = collector.collect_service_events(limit=50)
-        service_results = [
-            analyze_service_event(e.model_dump()) for e in sevents
-        ]
-        service_results.sort(key=lambda x: x['risk_score'], reverse=True)
-        service_top = service_results[:10]
-    except Exception as e:
-        print(f"An exception {e} has occurd")
-        service_top = []
+    # 4. Analyze Services
+    service_results = [analyze_service_event(e) for e in sevents]
+    service_results.sort(key=lambda x: x.get('risk_score', 0), reverse=True)
 
     return {
-        'process_analysis': process_top,
-        'network_analysis': network_top,
-        'service_analysis': service_top,
+        'process_analysis': process_results,
+        'network_analysis': network_results,
+        'service_analysis': service_results,
     }
 
 
-# ------------------------------------------------------
-# RUN SERVER
-# ------------------------------------------------------
-
 if __name__ == '__main__':
-    print(
-        f"[INFO] MCP running on {SERVER_HOST}:{SERVER_PORT}", file=sys.stderr,
-    )
-    app.run(transport='streamable-http')
+    print(f"[INFO] MCP running on {SERVER_HOST}:{SERVER_PORT}", file=sys.stderr)
+    try:
+        app.run(transport='streamable-http')
+    except KeyboardInterrupt:
+        print('\n[INFO] Server stopping...')
+    except Exception as e:
+        print(f"\n[ERROR] Server crashed: {e}")

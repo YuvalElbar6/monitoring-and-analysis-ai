@@ -212,3 +212,5 @@ events/
 .vscode/
 
 vector_db/
+
+system_monitor.db

@@ -1,40 +1,67 @@
+# rag/describer.py
 from __future__ import annotations
 
 from helper.json_helper import extract_json
 from rag.engine import call_ollama
-from rag.retriever import retrieve
+from rag.retriever import retrieve_filtered  # <--- Use filtered retrieval
 
 
-async def describe_process_with_rag(process_name: str, exe: str, username: str):
+async def describe_process_with_rag(process_name: str, exe: str, username: str) -> str:
     """
     Uses RAG to describe the process based on retrieved system evidence.
-    Falls back to a simple description if no documents match.
+    Robustly handles cases where LLM returns plain text instead of JSON.
     """
 
-    query = f"What is the process '{process_name}' running as {exe}?"
+    query = f"process '{process_name}' running from {exe}"
 
-    docs = retrieve(query, limit=5)
-    context = '\n\n---\n\n'.join([d.page_content for d in docs])
+    # 1. Retrieve Context (FILTERED)
+    # We only look for 'process' events so network packets don't confuse the AI.
+    try:
+        docs = retrieve_filtered(query, type_filter='process', limit=3)
+        context = '\n\n---\n\n'.join([d.page_content for d in docs])
+    except Exception:
+        context = ''
 
+    # 2. Stronger Prompt with JSON Instruction
     prompt = f"""
-You are a process description engine.
+You are a security analyst.
 
-Context about system activity:
+Context about past system activity:
 {context}
 
-Describe the process "{process_name}" in simple terms.
+Task: Describe the process "{process_name}" (running as "{username}") in 1-3 sentences.
 
-Mention:
-- what this program usually does
-- whether it is built-in, third-party, or unknown
-- why it might appear on a computer
-- whether its behavior is normal based on the context
+Requirements:
+- Explain what this program usually does.
+- Mention if it is built-in, third-party, or unknown.
+- State if the context shows valid or suspicious behavior.
+- If context is empty, give a generic definition of the process name.
 
-If context is empty or irrelevant:
-- give a generic description (e.g., "Windows system process", "A browser", etc.)
+IMPORTANT: You must return a JSON object in this format:
+{{
+    "description": "Your summary text here"
+}}
+"""
 
-Your description must be 1-3 sentences.
-    """
+    try:
+        # 3. Call LLM
+        result_text = await call_ollama(prompt)
 
-    result = await call_ollama(prompt)
-    return extract_json(result)['description']
+        # 4. Try to parse JSON
+        data = extract_json(result_text)
+
+        # 5. Fallback Logic
+        # If the LLM replied with plain text (e.g., "Powershell is a tool..."),
+        # extract_json might return empty. We just return the raw text in that case.
+        if not data or 'description' not in data:
+            clean_text = result_text.strip()
+            # If it wrapped it in code blocks blindly, strip them
+            if clean_text.startswith('```'):
+                clean_text = clean_text.strip('`json \n')
+            return clean_text
+
+        return data['description']
+
+    except Exception as e:
+        print(f"[RAG Describer] Error: {e}")
+        return f"Process {process_name} detected (Analysis unavailable)."

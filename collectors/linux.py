@@ -5,7 +5,7 @@ import json
 import subprocess
 
 import psutil
-from scapy.all import sniff
+from scapy.all import conf
 from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
 
@@ -14,17 +14,31 @@ from models.network import NetworkEvent
 from models.process import ProcessEvent
 from models.services import ServiceEvent
 from models.unified import UnifiedEvent
+# FIX: Use 'conf' to get the correct socket, avoiding import errors
 
 
 class LinuxCollector(BaseOSCollector):
+    """
+    Collector implementation for Linux systems.
+
+    Mechanisms:
+    - Processes: Uses 'psutil' library (reading /proc filesystem).
+    - Services: Parses output of 'systemctl' command in JSON format.
+    - Network: Uses Scapy with raw sockets (requires Root/Sudo).
+    """
 
     # ------------------------------
     # PROCESS EVENTS
     # ------------------------------
     def collect_process_events(self):
-        events = []
+        """
+        Takes a snapshot of all currently running processes.
 
-        for proc in psutil.process_iter():
+        Returns:
+            list[UnifiedEvent]: A list of process events containing PID, Name, CPU, and RAM usage.
+        """
+        events = []
+        for proc in psutil.process_iter(['pid', 'name', 'username']):
             try:
                 ev = ProcessEvent.from_psutil(proc)
                 if ev is None:
@@ -33,16 +47,14 @@ class LinuxCollector(BaseOSCollector):
                 events.append(
                     UnifiedEvent(
                         type='process',
-                        details=ev.model_dump(),
+                        details=ev.model_dump(mode='json'),
                         metadata={'os': 'linux', 'collector': 'psutil'},
                     ),
                 )
 
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
-
-            except Exception as e:
-                print(f"[LinuxCollector:process] Unexpected error: {e}")
+            except Exception:
                 continue
 
         return events
@@ -50,26 +62,42 @@ class LinuxCollector(BaseOSCollector):
     # ------------------------------
     # SERVICE EVENTS (systemd)
     # ------------------------------
-    def collect_service_events(self):
+    def collect_service_events(self, limit=50):
+        """
+        Collects current status of Systemd units (services).
+
+        Implementation:
+        Runs `systemctl list-units --output=json` to get structured data directly
+        from the OS service manager.
+
+        Args:
+            limit (int): Ignored on Linux (snapshot only), kept for compatibility.
+
+        Returns:
+            list[UnifiedEvent]: List of active system services.
+        """
         events = []
 
         try:
+            # Gets all services in JSON format
             data = subprocess.getoutput(
                 'systemctl list-units --type=service --all --no-pager --output=json',
             )
-            entries = json.loads(data)
+            try:
+                entries = json.loads(data)
+            except json.JSONDecodeError:
+                return []
 
         except Exception as e:
-            print(f"[LinuxCollector:service] systemctl read failed: {e}")
+            print(f"[LinuxCollector] Systemd error: {e}")
             return []
 
         for entry in entries:
             sev = ServiceEvent.from_linux(entry)
-
             events.append(
                 UnifiedEvent(
                     type='service_event',
-                    details=sev.model_dump(),
+                    details=sev.model_dump(mode='json'),
                     metadata={'os': 'linux', 'collector': 'systemd'},
                 ),
             )
@@ -77,44 +105,45 @@ class LinuxCollector(BaseOSCollector):
         return events
 
     # ------------------------------
-    # NETWORK EVENTS (limit-based)
+    # NETWORK EVENTS
     # ------------------------------
-    def collect_network_events(self, limit=10):
-        events = []
-        counter = {'count': 0}
+    def collect_network_events(self):
+        """
+        Streams network packets in real-time.
 
-        def _callback(pkt):
-            # detect IP layer
-            layer = None
-            if IP in pkt:
-                layer = pkt[IP]
-            elif IPv6 in pkt:
-                layer = pkt[IPv6]
+        Note:
+            This function yields data indefinitely.
+            Requires ROOT privileges (sudo) to access the raw network socket.
 
-            # build event
-            ev = NetworkEvent.from_scapy(pkt, layer)
+        Yields:
+            UnifiedEvent: A single captured network packet info (Source, Dest, Protocol).
+        """
+        try:
+            # conf.L3socket automatically picks the raw socket for Linux
+            s = conf.L3socket(filter='ip or ip6')
+        except Exception as e:
+            print(f"[Network] Socket Error (Root required?): {e}")
+            return
 
-            events.append(
-                UnifiedEvent(
+        while True:
+            try:
+                pkt = s.recv()
+                if not pkt:
+                    continue
+
+                layer = None
+                if IP in pkt:
+                    layer = pkt[IP]
+                elif IPv6 in pkt:
+                    layer = pkt[IPv6]
+
+                ev = NetworkEvent.from_scapy(pkt, layer)
+
+                yield UnifiedEvent(
                     type='network_flow',
-                    details=ev.model_dump(),
-                    metadata={'os': 'linux', 'collector': 'scapy'},
-                ),
-            )
+                    details=ev.model_dump(mode='json'),
+                    metadata={'os': 'linux', 'collector': 'scapy_socket'},
+                )
 
-            counter['count'] += 1
-
-            # IMPORTANT FIX: NEVER return False (Scapy prints it)
-            return None
-
-        def _stop(pkt):
-            return counter['count'] >= limit
-
-        sniff(
-            prn=_callback,
-            store=False,
-            filter='ip or ip6',
-            stop_filter=_stop,
-        )
-
-        return events
+            except Exception as e:
+                print(f"[Network] Parse Error: {e}")

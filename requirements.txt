@@ -11,3 +11,4 @@ python-dotenv==1.2.1
 # install it only on windows
 pywin32==311; platform_system == "Windows"
 scapy==2.6.1
+sqlalchemy==2.0.44
